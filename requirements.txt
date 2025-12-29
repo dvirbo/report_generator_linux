@@ -1,0 +1,12 @@
+# External dependencies for Report Generator System
+# Python 3.6.8 compatible versions
+
+# dataclasses backport (required for Python 3.6 - included in stdlib for Python 3.7+)
+dataclasses==0.8
+
+# Oracle database driver
+cx_Oracle==7.3.0
+
+# Keyring for secure credential storage (optional but recommended)
+keyring==21.8.0
+

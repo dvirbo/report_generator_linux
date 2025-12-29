@@ -1,0 +1,41 @@
+2025-12-29 11:04:41,368 - __main__ - INFO - Report Generator System - Starting
+2025-12-29 11:04:41,369 - __main__ - INFO - Interval: monthly | Base date: 2025-01-01
+2025-12-29 11:04:41,410 - src.services.database_service - INFO - Database connection established
+2025-12-29 11:04:41,410 - src.report_generator - INFO - Starting report generation process
+2025-12-29 11:04:41,412 - src.report_generator - INFO - Found 1 active reports
+2025-12-29 11:04:41,417 - src.report_generator - ERROR - Report 1 failed: int() argument must be a string, a bytes-like object or a number, not 'list'
+2025-12-29 11:04:41,417 - src.report_generator - INFO - Report generation completed: 0 successful, 1 failed
+2025-12-29 11:04:41,417 - __main__ - INFO - ============================================================
+2025-12-29 11:04:41,417 - __main__ - INFO - Report Generation Summary:
+2025-12-29 11:04:41,417 - __main__ - INFO -   Total Reports: 1
+2025-12-29 11:04:41,417 - __main__ - INFO -   Successful: 0
+2025-12-29 11:04:41,417 - __main__ - INFO -   Failed: 1
+2025-12-29 11:04:41,417 - __main__ - INFO - ============================================================
+2025-12-29 11:04:41,418 - src.services.database_service - INFO - Database connection closed
+2025-12-29 11:09:00,727 - __main__ - INFO - Report Generator System - Starting
+2025-12-29 11:09:00,727 - __main__ - INFO - Interval: monthly | Base date: 2025-01-01
+2025-12-29 11:09:00,768 - src.services.database_service - INFO - Database connection established
+2025-12-29 11:09:00,769 - src.report_generator - INFO - Starting report generation process
+2025-12-29 11:09:00,770 - src.report_generator - INFO - Found 1 active reports
+2025-12-29 11:09:00,774 - src.report_generator - INFO - Processing report 1 (בקרה ניהולית להתראות שנסגרו כ-"תקין תואם"- חודשי) for period 2025-01-01 00:00:00 to 2025-01-31 23:59:59.999999
+2025-12-29 11:09:00,775 - src.services.database_service - ERROR - Query execution failed: ORA-00903: invalid table name
+Help: https://docs.oracle.com/error-help/db/ora-00903/
+2025-12-29 11:09:00,775 - src.services.database_service - ERROR - Query: 
+            SELECT
+              child_users.email AS email,
+              bu.bu_identifier AS bu_identifier,
+              child_users.full_name AS full_name,
+              child_users.bu_internal_i...
+2025-12-29 11:09:00,775 - src.services.recipient_service - ERROR - Failed to fetch recipients from database: ORA-00903: invalid table name
+Help: https://docs.oracle.com/error-help/db/ora-00903/
+2025-12-29 11:09:00,775 - src.report_generator - ERROR - Report 1 failed: ORA-00903: invalid table name
+Help: https://docs.oracle.com/error-help/db/ora-00903/
+2025-12-29 11:09:00,787 - src.services.logger_service - INFO - Completed execution 3 with status FAILED
+2025-12-29 11:09:00,788 - src.report_generator - INFO - Report generation completed: 0 successful, 1 failed
+2025-12-29 11:09:00,788 - __main__ - INFO - ============================================================
+2025-12-29 11:09:00,788 - __main__ - INFO - Report Generation Summary:
+2025-12-29 11:09:00,788 - __main__ - INFO -   Total Reports: 1
+2025-12-29 11:09:00,788 - __main__ - INFO -   Successful: 0
+2025-12-29 11:09:00,788 - __main__ - INFO -   Failed: 1
+2025-12-29 11:09:00,788 - __main__ - INFO - ============================================================
+2025-12-29 11:09:00,789 - src.services.database_service - INFO - Database connection closed
