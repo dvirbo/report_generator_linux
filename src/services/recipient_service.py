@@ -40,12 +40,12 @@ class RecipientService:
               bu.bu_identifier AS bu_identifier,
               child_users.full_name AS full_name,
               child_users.bu_internal_id AS bu_internal_id
-            FROM actone..acm_users parent_users
-            JOIN actone..acm_user_group_members members
+            FROM actone.acm_users parent_users
+            JOIN actone.acm_user_group_members members
               ON parent_users.user_internal_id = members.parent_user_id
-            JOIN actone..acm_users child_users
+            JOIN actone.acm_users child_users
               ON members.child_user_id = child_users.user_internal_id
-            JOIN actone..acm_md_business_units bu
+            JOIN actone.acm_md_business_units bu
               ON child_users.bu_internal_id = bu.bu_internal_id
             WHERE parent_users.login_name = :bu_indicator
         """

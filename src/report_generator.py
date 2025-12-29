@@ -100,7 +100,6 @@ class ReportGenerator:
                 raise ValueError(f"Preloaded report ID {preloaded_report.report_id} does not match requested ID {report_id}")
 
             execution_id = self.logger_service.log_execution_start(report_id)
-            print(execution_id) 
             if base_datetime is None:
                 logger.info("No base datetime provided, using current datetime")
                 base_datetime = datetime.now()
