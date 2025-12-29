@@ -37,7 +37,7 @@ QUICK START:
 2. Transfer offline_packages directory to server
 
 3. Install on offline server:
-   pip install --no-index --find-links ./offline_packages -r requirements.txt
+   pip3 install --no-index --find-links=libs
 
 4. Install Oracle Instant Client separately (required for cx_Oracle)
 
