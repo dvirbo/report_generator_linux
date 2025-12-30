@@ -69,6 +69,48 @@ class DatabaseService:
             # Don't close connection here, let it be managed externally
             pass
 
+    def _convert_lob_to_python(self, value: Any) -> Any:
+        """
+        Convert Oracle LOB objects to Python types
+        
+        Args:
+            value: Value that might be a LOB object
+        
+        Returns:
+            Converted value (CLOB -> str, BLOB -> bytes, others unchanged)
+        """
+        if value is None:
+            return None
+        
+        # Check if it's a LOB object
+        # LOB objects in cx_Oracle have a 'read()' method and are not file-like objects
+        # We check the type name to identify LOB objects
+        value_type = type(value).__name__
+        
+        # Check if it's a LOB type (CLOB, BLOB, NCLOB)
+        if 'LOB' in value_type.upper() or (hasattr(value, 'read') and not isinstance(value, (str, bytes, int, float, bool))):
+            try:
+                # Read the LOB content (works for both CLOB and BLOB)
+                content = value.read()
+                # Close the LOB after reading to free resources
+                if hasattr(value, 'close'):
+                    try:
+                        value.close()
+                    except:
+                        pass  # Ignore errors on close
+                return content
+            except Exception as e:
+                logger.warning(f"Failed to read LOB content (type: {value_type}): {e}, returning string representation")
+                # Try to close even if read failed
+                if hasattr(value, 'close'):
+                    try:
+                        value.close()
+                    except:
+                        pass
+                return str(value)
+        
+        return value
+
     def execute_query(self, query: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Execute a SELECT query and return results as list of dictionaries
@@ -93,7 +135,9 @@ class DatabaseService:
             # Fetch all rows and convert to dictionaries
             results = []
             for row in cursor.fetchall():
-                row_dict = dict(zip(columns, row))
+                # Convert LOB objects to Python types before creating dictionary
+                converted_row = [self._convert_lob_to_python(value) for value in row]
+                row_dict = dict(zip(columns, converted_row))
                 results.append(row_dict)
             
             cursor.close()

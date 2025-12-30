@@ -194,6 +194,7 @@ class ConfigLoader:
             'smtp_use_tls': self.getboolean('email', 'smtp_use_tls', True),
             'smtp_username': self.get('email', 'smtp_username'),
             'smtp_password': self.get('email', 'smtp_password'),
+            'smtp_require_auth': self.getboolean('email', 'smtp_require_auth', True),
             'from_email': self.get('email', 'from_email'),
             'from_name': self.get('email', 'from_name'),
             'max_email_size_kb': self.getint('email', 'max_email_size_kb', 10240),

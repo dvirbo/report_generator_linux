@@ -62,9 +62,9 @@ def parse_arguments() -> argparse.Namespace:
         epilog="""
 Examples:
   python main.py daily 2025-01-01  (yyyy-mm-dd format)
-  python main.py weekly 2025-01-01
+  python3 main.py last_bd 2025-01-01
 
-Valid intervals: bi-daily, daily, weekly, monthly, quarterly, yearly, yesterday
+Valid intervals: bi-daily, daily, weekly, monthly, quarterly, yearly, yesterday, last_bd
         """
     )
     parser.add_argument('interval', help='Interval name (bi-daily, daily, weekly, monthly, quarterly, yearly, yesterday)')

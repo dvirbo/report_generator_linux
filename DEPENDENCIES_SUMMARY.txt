@@ -6,49 +6,19 @@ Python 3.6.8 Compatible
 EXTERNAL PACKAGES (Must be downloaded):
 ---------------------------------------
 1. dataclasses==0.8
-   - Purpose: Data classes support (backport for Python 3.6)
-   - Used in: report_config.py, recipient.py, report_generator.py
-   - Note: Required for Python 3.6.8 (included in stdlib for Python 3.7+)
-
 2. cx_Oracle==7.3.0
-   - Purpose: Oracle database connectivity
-   - Used in: database_service.py, logger_service.py
-   - Note: Requires Oracle Instant Client (install separately)
-
 3. keyring==21.8.0
-   - Purpose: Secure credential storage (optional)
-   - Used in: config_loader.py, tools/keyring_secrets.py
-   - Note: Optional - app works without it if not using KEYRING: tokens
 
-STANDARD LIBRARY MODULES (No installation needed):
---------------------------------------------------
-All other imports are from Python standard library:
-- sys, logging, argparse, pathlib, datetime
-- smtplib, email.*
-- csv, os, json, traceback
-- typing, dataclasses, enum, collections
-- configparser, contextlib, getpass, re
+INSTALLATION COMMAND:
+---------------------
+# Install all .whl files from libs directory directly:
+pip3 install --no-index libs/*.whl
 
-QUICK START:
-------------
-1. Download dependencies:
-   python3 download_dependencies.py ./offline_packages
+Or if using python3.6 specifically:
+python3.6 -m pip install --no-index libs/*.whl
 
-2. Transfer offline_packages directory to server
-
-3. Install on offline server:
-   pip3 install --no-index --find-links=libs
-
-4. Install Oracle Instant Client separately (required for cx_Oracle)
-
-FILES CREATED:
---------------
-- requirements.txt              - Package versions list
-- download_dependencies.sh      - Bash download script
-- download_dependencies.py      - Python download script
-- IMPORTS_LIST.md              - Detailed imports documentation
-- OFFLINE_INSTALLATION.md       - Complete installation guide
-- DEPENDENCIES_SUMMARY.txt      - This file
+Alternative (using find-links):
+pip3 install --no-index --find-links=libs dataclasses cx_Oracle keyring
 
 ================================================================================
 

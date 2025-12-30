@@ -173,8 +173,16 @@ class LoggerService:
             logger.debug(f"Logged email delivery: {recipient_email} - {status}")
             
         except Exception as e:
-            logger.error(f"Failed to log email delivery: {e}")
-            self.db_service.rollback()
+            # Check if it's a "table does not exist" error
+            error_msg = str(e)
+            if 'ORA-00942' in error_msg or 'table or view does not exist' in error_msg.lower():
+                logger.warning(f"Table report_email_delivery_log does not exist. Email delivery logging skipped.")
+                logger.warning(f"To enable email delivery logging, create the report_email_delivery_log table.")
+                # Don't raise - allow the process to continue without logging
+            else:
+                logger.error(f"Failed to log email delivery: {e}")
+                self.db_service.rollback()
+                # Don't raise - email delivery logging failure shouldn't stop the process
 
     def log_error(self, execution_id: int, error: Exception):
         """

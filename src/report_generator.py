@@ -354,7 +354,7 @@ class ReportGenerator:
         # Generate CSV and send email only when there is data
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
-
+        
         recipient_emails = [r.email for r in recipients]
         success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
 

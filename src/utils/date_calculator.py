@@ -7,6 +7,7 @@ from datetime import datetime, date, timedelta
 from typing import Tuple
 
 ALLOWED_INTERVALS = {
+    'last_bd',
     'bi-daily',
     'daily',
     'weekly',

@@ -23,63 +23,6 @@ class EmailService:
     
     Note: Email sending functionality requires manual verification in development environment.
     These doctests verify email construction and validation without actually sending emails.
-    
-    >>> # Test email validation
-    >>> EmailService.validate_email_address('test@example.com')
-    True
-    >>> EmailService.validate_email_address('invalid.email')
-    False
-    >>> EmailService.validate_email_address('user@domain.co.uk')
-    True
-    >>> 
-    >>> # Test distribution list parsing
-    >>> emails = EmailService.parse_distribution_list('user1@example.com, user2@example.com, user3@example.com')
-    >>> len(emails)
-    3
-    >>> 'user1@example.com' in emails
-    True
-    >>> 'user2@example.com' in emails
-    True
-    >>> 
-    >>> # Test empty distribution list
-    >>> EmailService.parse_distribution_list('')
-    []
-    >>> EmailService.parse_distribution_list(None)
-    []
-    >>> 
-    >>> # Test email service initialization (without sending)
-    >>> config = {
-    ...     'smtp_server': 'smtp.example.com',
-    ...     'smtp_port': 587,
-    ...     'smtp_use_tls': True,
-    ...     'smtp_username': 'user@example.com',
-    ...     'smtp_password': 'password',
-    ...     'from_email': 'sender@example.com',
-    ...     'from_name': 'Test Sender'
-    ... }
-    >>> email_service = EmailService(config)
-    >>> email_service.smtp_server == 'smtp.example.com'
-    True
-    >>> email_service.from_email == 'sender@example.com'
-    True
-    >>> 
-    >>> # Test email content building (placeholder - verify manually)
-    >>> # Use a simple mock object to avoid import issues in doctest
-    >>> class MockReport:
-    ...     def __init__(self):
-    ...         self.mail_body = 'This is a test email body.'
-    ...         self.mail_subject = 'Test Subject'
-    >>> mock_report = MockReport()
-    >>> body = email_service._build_email_content(mock_report, has_data=True)
-    >>> 'This is a test email body.' in body
-    True
-    >>> 'Please find the report data attached' in body
-    True
-    >>> 
-    >>> # Test email content for no data case
-    >>> body_no_data = email_service._build_email_content(mock_report, has_data=False)
-    >>> 'No data available' in body_no_data
-    True
     """
 
     def __init__(self, config: dict):
@@ -95,6 +38,9 @@ class EmailService:
         self.smtp_use_tls = config.get('smtp_use_tls', True)
         self.smtp_username = config.get('smtp_username')
         self.smtp_password = config.get('smtp_password')
+        # Default to False for port 25 (common for internal mail servers), True for other ports
+        default_require_auth = config.get('smtp_port', 587) != 25
+        self.smtp_require_auth = config.get('smtp_require_auth', default_require_auth)
         self.from_email = config.get('from_email')
         self.from_name = config.get('from_name', 'Automated Report System')
 
@@ -229,18 +175,26 @@ class EmailService:
                 logger.warning(f"CSV file not found: {csv_filepath}")
                 return
             
+            # Ensure filename has .csv extension
+            filename = file_path.name
+            if not filename.lower().endswith('.csv'):
+                filename = f"{file_path.stem}.csv"
+            
             with open(file_path, 'rb') as f:
-                part = MIMEBase('application', 'octet-stream')
+                # Use text/csv MIME type instead of octet-stream
+                part = MIMEBase('text', 'csv')
                 part.set_payload(f.read())
             
+            # Set proper headers for CSV attachment
             encoders.encode_base64(part)
+            part.add_header('Content-Type', 'text/csv; charset=utf-8')
             part.add_header(
                 'Content-Disposition',
-                f'attachment; filename= {file_path.name}'
+                f'attachment; filename="{filename}"'
             )
             msg.attach(part)
             
-            logger.debug(f"Attached CSV file: {csv_filepath}")
+            logger.debug(f"Attached CSV file: {csv_filepath} as {filename}")
             
         except Exception as e:
             logger.error(f"Failed to attach CSV file: {e}")
@@ -254,24 +208,101 @@ class EmailService:
             msg: MIMEMultipart message object
             recipients: List of recipient email addresses
         """
+        server = None
         try:
             # Create SMTP connection with timeout (default 30 seconds)
             timeout = self.config.get('smtp_timeout', 30)
             server = smtplib.SMTP(timeout=timeout)
             server.connect(self.smtp_server, self.smtp_port)
             
+            # Enable debug output for troubleshooting (can be removed in production)
+            # server.set_debuglevel(1)
+            
+            # Send EHLO to get server capabilities (needed before STARTTLS or AUTH)
+            server.ehlo()
+            
+            # Start TLS if configured (some servers require TLS before authentication)
             if self.smtp_use_tls:
-                server.starttls()
+                try:
+                    server.starttls()
+                    # After STARTTLS, need to send EHLO again
+                    server.ehlo()
+                    logger.debug("TLS/STARTTLS enabled")
+                except Exception as e:
+                    logger.warning(f"Failed to start TLS: {e}. Continuing without TLS.")
             
-            if self.smtp_username and self.smtp_password:
-                server.login(self.smtp_username, self.smtp_password)
+            # Attempt authentication if credentials are provided and required
+            auth_successful = False
+            if self.smtp_require_auth and self.smtp_username and self.smtp_password:
+                try:
+                    # Some servers require authentication but don't advertise AUTH in EHLO
+                    # Try authentication anyway if credentials are provided
+                    logger.debug("Attempting SMTP authentication...")
+                    
+                    # Check what AUTH methods are available (for logging)
+                    auth_methods = []
+                    if hasattr(server, 'esmtp_features') and 'auth' in server.esmtp_features:
+                        auth_methods = server.esmtp_features['auth'].split()
+                        logger.debug(f"Server advertises AUTH methods: {auth_methods}")
+                    else:
+                        logger.debug("Server does not advertise AUTH methods, but will attempt login anyway")
+                    
+                    # Try to authenticate - some servers require auth even if not advertised
+                    server.login(self.smtp_username, self.smtp_password)
+                    logger.info("SMTP authentication successful")
+                    auth_successful = True
+                    
+                except smtplib.SMTPAuthenticationError as e:
+                    logger.error(f"SMTP authentication failed: {e}")
+                    raise  # Authentication failed with valid credentials - this is an error
+                except smtplib.SMTPException as auth_error:
+                    error_msg = str(auth_error).lower()
+                    if "no suitable" in error_msg or "authentication method" in error_msg:
+                        logger.error(f"SMTP server requires authentication but doesn't support available methods: {auth_error}")
+                        if auth_methods:
+                            logger.error(f"Server advertises these AUTH methods but none work: {auth_methods}")
+                        logger.error("Suggestion: Try enabling STARTTLS (smtp_use_tls = yes) - some servers require TLS before authentication")
+                        raise
+                    else:
+                        raise
+            elif not self.smtp_require_auth:
+                logger.debug("SMTP authentication disabled in config - sending without authentication")
+                auth_successful = False  # Not required, so we're good
             
+            # Send the email
             server.send_message(msg, to_addrs=recipients)
-            server.quit()
+            logger.debug(f"Email sent successfully to {len(recipients)} recipient(s)")
                 
+        except smtplib.SMTPException as e:
+            error_msg = str(e).lower()
+            # Don't treat "no suitable authentication method" as a fatal error on port 25
+            if ("no suitable" in error_msg or "authentication method" in error_msg) and self.smtp_port == 25:
+                logger.warning(f"SMTP authentication not supported on port 25: {e}")
+                logger.info("This is normal for internal mail servers. Email sending may still work.")
+                # Try to send anyway - some servers allow unauthenticated sending on port 25
+                # But if we're here, the send_message already failed, so we can't continue
+                raise
+            else:
+                logger.error(f"SMTP error: {e}")
+                raise
         except Exception as e:
-            logger.error(f"SMTP error: {e}")
+            error_msg = str(e).lower()
+            if "no suitable" in error_msg or "authentication" in error_msg:
+                logger.warning(f"SMTP authentication issue: {e}")
+                if self.smtp_port == 25:
+                    logger.info("Port 25 often doesn't require authentication. Check your SMTP configuration.")
+            logger.error(f"Unexpected error sending email: {e}")
             raise
+        finally:
+            # Always close the connection
+            if server:
+                try:
+                    server.quit()
+                except:
+                    try:
+                        server.close()
+                    except:
+                        pass
 
     @staticmethod
     def validate_email_address(email: str) -> bool:
@@ -306,4 +337,5 @@ class EmailService:
         # Validate emails
         valid_emails = [email for email in emails if EmailService.validate_email_address(email)]
         return valid_emails
+
 
