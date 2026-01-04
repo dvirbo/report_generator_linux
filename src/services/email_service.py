@@ -68,7 +68,9 @@ class EmailService:
             msg = MIMEMultipart()
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = recipient.email
-            msg['Subject'] = report.mail_subject
+            # Set subject - use report subject or generate one
+            subject = report.mail_subject or f"Report: {report.report_name}"
+            msg['Subject'] = subject
             
             # Build email body
             body = self._build_email_content(report, has_data)
@@ -112,7 +114,9 @@ class EmailService:
             msg = MIMEMultipart()
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = ', '.join(recipients)
-            msg['Subject'] = report.mail_subject
+            # Set subject - use report subject or generate one
+            subject = report.mail_subject or f"Report: {report.report_name}"
+            msg['Subject'] = subject
             
             # Build email body
             body = self._build_email_content(report, has_data)
@@ -175,26 +179,45 @@ class EmailService:
                 logger.warning(f"CSV file not found: {csv_filepath}")
                 return
             
-            # Ensure filename has .csv extension
+            # Use the exact filename from the file path (already has meaningful name from CSV generator)
+            # The CSV generator creates filenames like: report_{report_name}_{timestamp}.csv
             filename = file_path.name
+            # Ensure it has .csv extension (should already have it, but just in case)
             if not filename.lower().endswith('.csv'):
                 filename = f"{file_path.stem}.csv"
             
+            # Read CSV file as binary for attachment
             with open(file_path, 'rb') as f:
-                # Use text/csv MIME type instead of octet-stream
-                part = MIMEBase('text', 'csv')
-                part.set_payload(f.read())
+                file_data = f.read()
             
-            # Set proper headers for CSV attachment
+            # Create attachment part using MIMEBase
+            # Start with application/octet-stream, then override with proper CSV type
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(file_data)
+            
+            # Encode as base64 for email transmission
             encoders.encode_base64(part)
-            part.add_header('Content-Type', 'text/csv; charset=utf-8')
+            
+            # Set Content-Type header explicitly for CSV
+            # Use application/vnd.ms-excel for maximum compatibility with email clients
+            # This MIME type is widely recognized and ensures CSV files open in Excel
+            # Many email clients treat text/csv or application/csv as plain text
+            if 'Content-Type' in part:
+                del part['Content-Type']
+            # application/vnd.ms-excel is the most compatible for CSV files in email
+            part.add_header('Content-Type', 'application/vnd.ms-excel; charset=utf-8; name="{}"'.format(filename))
+            
+            # Set Content-Disposition header with the exact filename from saved CSV
+            # The filename already has the meaningful name from CSV generator (e.g., report_ReportName_20250101_120000.csv)
+            # The .csv extension in the filename is critical for email clients to recognize it as CSV
             part.add_header(
                 'Content-Disposition',
-                f'attachment; filename="{filename}"'
+                'attachment; filename="{}"'.format(filename)
             )
+            
             msg.attach(part)
             
-            logger.debug(f"Attached CSV file: {csv_filepath} as {filename}")
+            logger.debug(f"Attached CSV file: {csv_filepath} with filename: {filename}")
             
         except Exception as e:
             logger.error(f"Failed to attach CSV file: {e}")

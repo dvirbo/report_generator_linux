@@ -22,3 +22,4 @@ pip3 install --no-index --find-links=libs dataclasses cx_Oracle keyring
 
 ================================================================================
 
+ifsadmin@10.205.6.19

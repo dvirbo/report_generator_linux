@@ -182,4 +182,3 @@ class DatabaseService:
         """Rollback current transaction"""
         if self.connection:
             self.connection.rollback()
-

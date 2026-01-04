@@ -219,5 +219,20 @@ class ConfigLoader:
             'csv_encoding': self.get('files', 'csv_encoding', 'utf-8-sig'),
             'cleanup_temp_files': self.getboolean('files', 'cleanup_temp_files', True),
         }
+    
+    def get_manager_bu_list(self) -> List[str]:
+        """
+        Get list of BU identifiers that use manager-based processing
+        
+        Returns:
+            List of BU identifier strings (e.g., ['461', '462', '463'])
+        """
+        bu_list_str = self.get('branches', 'manager_bu_list', '')
+        if not bu_list_str:
+            return []
+        
+        # Parse comma-separated list and strip whitespace
+        bu_list = [bu.strip() for bu in bu_list_str.split(',') if bu.strip()]
+        return bu_list
 
 

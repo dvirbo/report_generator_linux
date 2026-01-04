@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 from collections import defaultdict
-
 from .models.report_config import ReportConfig
 from .models.recipient import Recipient
 from .services.database_service import DatabaseService
@@ -19,6 +18,8 @@ from .services.email_service import EmailService
 from .services.csv_generator import CSVGenerator
 from .services.logger_service import LoggerService
 from .utils.date_calculator import DateCalculator
+from .utils.config_loader import ConfigLoader
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ EMAIL_SEND_FAILED_MESSAGE = 'Email send failed'
 class ProcessingMode(Enum):
     SINGLE_QUERY_BULK_EMAIL = "single_query_bulk_email"
     PER_RECIPIENT_QUERY_EMAIL = "per_recipient_query_email"
+    PER_MANAGER_QUERY_EMAIL = "per_manager_query_email"
 
 
 @dataclass
@@ -240,18 +242,27 @@ class ReportGenerator:
         True
         """
         name = (bu_indicator or '').strip().lower()
+        
+        # Check if this BU uses manager-based processing
+        config_loader = ConfigLoader()
+        manager_bu_list = config_loader.get_manager_bu_list()
+        
+        # For branches, check if specific BU identifiers use manager-based processing
+        if name == 'branches':
+            # We'll determine the actual processing mode in _handle_report based on the specific BU
+            return ReportProcessingConfig(
+                bu_indicator='branches',
+                recipient_source='database',
+                requires_bu_parameter=True,
+                processing_mode=ProcessingMode.PER_RECIPIENT_QUERY_EMAIL  # Default, may be overridden
+            )
+        
         mapping = {
             'mador': ReportProcessingConfig(
                 bu_indicator='mador',
                 recipient_source='distribution_list',
                 requires_bu_parameter=False,
                 processing_mode=ProcessingMode.SINGLE_QUERY_BULK_EMAIL
-            ),
-            'branches': ReportProcessingConfig(
-                bu_indicator='branches',
-                recipient_source='database',
-                requires_bu_parameter=True,
-                processing_mode=ProcessingMode.PER_RECIPIENT_QUERY_EMAIL
             ),
             'merchav': ReportProcessingConfig(
                 bu_indicator='merchav',
@@ -297,6 +308,30 @@ class ReportGenerator:
         if not recipients:
             logger.warning(f"No recipients found for report {report.report_id}")
             return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': 0, 'records_returned': 0}
+
+        # Check if this report should use manager-based processing
+        # For branches, check if any recipients belong to BUs in the manager list
+        if config.bu_indicator == 'branches':
+            from .utils.config_loader import ConfigLoader
+            config_loader = ConfigLoader()
+            manager_bu_list = config_loader.get_manager_bu_list()
+            
+            # Check if any recipient's BU is in the manager list
+            recipients_by_bu = defaultdict(list)
+            for recipient in recipients:
+                if recipient.bu_identifier:
+                    recipients_by_bu[recipient.bu_identifier].append(recipient)
+            
+            has_manager_bu = any(bu_id in manager_bu_list for bu_id in recipients_by_bu.keys())
+            
+            if has_manager_bu:
+                # Use manager-based processing
+                logger.info(f"Using manager-based processing for report {report.report_id}")
+                return self._process_per_manager_query_email(report, start_dt, end_dt, execution_id, recipients, config)
+            else:
+                # Use standard per-BU processing
+                logger.info(f"Using standard per-BU processing for report {report.report_id}")
+                return self._process_per_bu_group_query_email(report, start_dt, end_dt, execution_id, recipients, config)
 
         if config.processing_mode == ProcessingMode.SINGLE_QUERY_BULK_EMAIL: #mador and compliance reports are processed using this mode
             return self._process_single_query_bulk_email(report, start_dt, end_dt, execution_id, recipients, config)
@@ -470,10 +505,242 @@ class ReportGenerator:
                         recipient.email, 
                         recipient.full_name, 
                         recipient.bu_internal_id, 
-                        'FAILED', 
+                        'FAILED',
                         error_message=str(e)
                     )
 
+        return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': success_count, 'records_returned': total_records}
+
+    def _process_per_manager_query_email(
+        self,
+        report: ReportConfig,
+        start_dt: datetime,
+        end_dt: datetime,
+        execution_id: int,
+        recipients: List[Recipient],
+        config: ReportProcessingConfig
+    ) -> Dict[str, Any]:
+        """
+        Process report for branches with multiple managers.
+        For each BU, fetch manager IDs, execute query separately for each manager,
+        and send personalized data to each manager's email.
+        
+        Args:
+            report: ReportConfig object containing the report configuration
+            start_dt: Start datetime for the report period
+            end_dt: End datetime for the report period
+            execution_id: Execution ID from logger service
+            recipients: List of recipients (managers)
+            config: ReportProcessingConfig containing the processing configuration
+        
+        Returns:
+            Dictionary containing report ID, name, recipients count, and records returned
+        """
+        
+        success_count = 0
+        total_records = 0
+        
+        # Get list of BUs that use manager-based processing
+        config_loader = ConfigLoader()
+        manager_bu_list = config_loader.get_manager_bu_list()
+        
+        # Group recipients by bu_identifier
+        recipients_by_bu = defaultdict(list)
+        for recipient in recipients:
+            bu_id = recipient.bu_identifier
+            if bu_id:
+                recipients_by_bu[bu_id].append(recipient)
+            else:
+                logger.warning(f"Recipient {recipient.email} has no bu_identifier, skipping")
+        
+        logger.info(f"Grouped {len(recipients)} recipients into {len(recipients_by_bu)} BU groups")
+        
+        # Process each BU group
+        for bu_identifier, group_recipients in recipients_by_bu.items():
+            try:
+                # Check if this BU uses manager-based processing
+                if bu_identifier not in manager_bu_list:
+                    # Use standard per-BU processing for non-manager BUs
+                    logger.info(f"BU {bu_identifier} not in manager list, using standard processing")
+                    params = {'start_date': start_dt, 'end_date': end_dt}
+                    if config.requires_bu_parameter:
+                        params['bu'] = bu_identifier
+                    
+                    results = self.query_executor.execute_query(report.sql_query, params, requires_bu=config.requires_bu_parameter)
+                    has_data = len(results) > 0
+                    total_records += len(results)
+                    
+                    if not has_data:
+                        logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
+                        for recipient in group_recipients:
+                            self.logger_service.log_email_delivery(
+                                execution_id, 
+                                report.report_id, 
+                                recipient.email, 
+                                recipient.full_name, 
+                                recipient.bu_internal_id, 
+                                'NO_DATA',
+                                error_message='No data available for the selected period'
+                            )
+                        continue
+                    
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
+                    recipient_emails = [r.email for r in group_recipients]
+                    success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
+                    
+                    status = 'SENT' if success else 'FAILED'
+                    error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
+                    for recipient in group_recipients:
+                        if success:
+                            success_count += 1
+                        self.logger_service.log_email_delivery(
+                            execution_id, 
+                            report.report_id, 
+                            recipient.email, 
+                            recipient.full_name, 
+                            recipient.bu_internal_id, 
+                            status,
+                            error_message=error_message
+                        )
+                    
+                    if csv_filepath:
+                        self.csv_generator.cleanup_file(csv_filepath)
+                    continue
+                
+                # Manager-based processing for configured BUs
+                logger.info(f"Processing BU {bu_identifier} with manager-based logic")
+                
+                # Get manager IDs for this BU
+                manager_ids = self.recipient_service.get_manager_ids(bu_identifier)
+                
+                if not manager_ids:
+                    logger.warning(f"No manager IDs found for BU {bu_identifier}")
+                    for recipient in group_recipients:
+                        self.logger_service.log_email_delivery(
+                            execution_id, 
+                            report.report_id, 
+                            recipient.email, 
+                            recipient.full_name, 
+                            recipient.bu_internal_id, 
+                            'NO_DATA',
+                            error_message='No manager IDs found for this branch'
+                        )
+                    continue
+                
+                if len(manager_ids) != len(group_recipients):
+                    logger.warning(
+                        f"Manager ID count ({len(manager_ids)}) doesn't match recipient count ({len(group_recipients)}) "
+                        f"for BU {bu_identifier}. Matching by order."
+                    )
+                
+                # Process each manager
+                for idx, manager_id in enumerate(manager_ids):
+                    try:
+                        # Match manager to recipient by order (first manager ID -> first recipient, etc.)
+                        if idx < len(group_recipients):
+                            recipient = group_recipients[idx]
+                        else:
+                            logger.warning(f"No recipient found for manager ID {manager_id} at index {idx}")
+                            continue
+                        
+                        # Execute query with bu_identifier and manager_id
+                        params = {
+                            'start_date': start_dt,
+                            'end_date': end_dt,
+                            'bu_identifier': bu_identifier,
+                            'manager_id': manager_id
+                        }
+                        
+                        results = self.query_executor.execute_query(report.sql_query, params, requires_bu=False)
+                        has_data = len(results) > 0
+                        total_records += len(results)
+                        
+                        # If no data, log and skip email sending for this manager
+                        if not has_data:
+                            logger.info(
+                                f"No data returned for report {report.report_id}, BU {bu_identifier}, "
+                                f"manager {manager_id}, skipping email sending"
+                            )
+                            self.logger_service.log_email_delivery(
+                                execution_id, 
+                                report.report_id, 
+                                recipient.email, 
+                                recipient.full_name, 
+                                recipient.bu_internal_id, 
+                                'NO_DATA',
+                                error_message='No data available for the selected period and manager'
+                            )
+                            continue
+                        
+                        # Generate CSV for this manager's data
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        csv_filepath = self.csv_generator.generate_csv(
+                            results, 
+                            f"{report.report_name}_BU{bu_identifier}_M{manager_id}", 
+                            timestamp
+                        )
+                        
+                        # Send email to this specific manager
+                        success = self.email_service.send_report_email(
+                            recipient, 
+                            report, 
+                            csv_filepath, 
+                            has_data
+                        )
+                        
+                        # Log email delivery
+                        status = 'SENT' if success else 'FAILED'
+                        error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
+                        if success:
+                            success_count += 1
+                        
+                        self.logger_service.log_email_delivery(
+                            execution_id, 
+                            report.report_id, 
+                            recipient.email, 
+                            recipient.full_name, 
+                            recipient.bu_internal_id, 
+                            status,
+                            error_message=error_message
+                        )
+                        
+                        # Cleanup CSV file
+                        if csv_filepath:
+                            self.csv_generator.cleanup_file(csv_filepath)
+                            
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to process manager {manager_id} for BU {bu_identifier}: {e}",
+                            exc_info=True
+                        )
+                        # Log failure for this manager
+                        if idx < len(group_recipients):
+                            recipient = group_recipients[idx]
+                            self.logger_service.log_email_delivery(
+                                execution_id, 
+                                report.report_id, 
+                                recipient.email, 
+                                recipient.full_name, 
+                                recipient.bu_internal_id, 
+                                'FAILED',
+                                error_message=str(e)
+                            )
+                
+            except Exception as e:
+                logger.error(f"Failed to process BU group {bu_identifier}: {e}", exc_info=True)
+                # Log failure for all recipients in the group
+                for recipient in group_recipients:
+                    self.logger_service.log_email_delivery(
+                        execution_id, 
+                        report.report_id, 
+                        recipient.email, 
+                        recipient.full_name, 
+                        recipient.bu_internal_id, 
+                        'FAILED',
+                        error_message=str(e)
+                    )
+        
         return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': success_count, 'records_returned': total_records}
 
 

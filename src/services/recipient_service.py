@@ -69,4 +69,37 @@ class RecipientService:
         except Exception as e:
             logger.error(f"Failed to fetch recipients from database: {e}")
             raise
+    
+    def get_manager_ids(self, bu_identifier: str) -> List[str]:
+        """
+        Fetch manager IDs (tz_menahel_snif) for a specific branch
+        
+        Args:
+            bu_identifier: Branch identifier (mispar_snif)
+        
+        Returns:
+            List of manager IDs (tz_menahel_snif values)
+        """
+        query = """
+            SELECT DISTINCT tz_menahel_snif
+            FROM mizrahi_custom.referant
+            WHERE mispar_snif = :bu
+            ORDER BY tz_menahel_snif
+        """
+        
+        try:
+            rows = self.db_service.execute_query(query, {'bu': bu_identifier})
+            
+            manager_ids = []
+            for row in rows:
+                manager_id = row.get('tz_menahel_snif') or row.get('TZ_MENAHEL_SNIF')
+                if manager_id:
+                    manager_ids.append(str(manager_id))
+            
+            logger.info(f"Fetched {len(manager_ids)} manager IDs for BU {bu_identifier}")
+            return manager_ids
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch manager IDs for BU {bu_identifier}: {e}")
+            raise
 
