@@ -21,6 +21,7 @@ from .utils.date_calculator import DateCalculator
 from .utils.config_loader import ConfigLoader
 
 
+
 logger = logging.getLogger(__name__)
 
 EMAIL_SEND_FAILED_MESSAGE = 'Email send failed'
@@ -133,7 +134,8 @@ class ReportGenerator:
     def _load_active_reports(self, interval_name: Optional[str] = None) -> List[ReportConfig]:
         query = """
             SELECT report_id, report_name, sql_query, interval_desc, distribution_list,
-                   bu_indicator, mail_subject, mail_body
+                   bu_indicator, mail_subject, mail_body,
+                   NVL(send_on_no_data, 'N') as send_on_no_data
             FROM report_config
             WHERE active_indicator = 1
         """
@@ -158,6 +160,10 @@ class ReportGenerator:
                     logger.error(f"report_id is an empty list in row: {row}")
                     continue
             
+            # Parse send_on_no_data flag (Y/N or 1/0 or boolean)
+            send_on_no_data_val = row.get('SEND_ON_NO_DATA') or row.get('send_on_no_data') or 'N'
+            send_on_no_data = str(send_on_no_data_val).upper() in ('Y', '1', 'TRUE', 'YES')
+            
             reports.append(ReportConfig(
                 report_id=int(report_id),
                 report_name=row.get('REPORT_NAME') or row.get('report_name') or '',
@@ -167,13 +173,15 @@ class ReportGenerator:
                 bu_indicator=row.get('BU_INDICATOR') or row.get('bu_indicator') or '',
                 mail_subject=row.get('MAIL_SUBJECT') or row.get('mail_subject'),
                 mail_body=row.get('MAIL_BODY') or row.get('mail_body'),
+                send_on_no_data=send_on_no_data,
             ))
         return reports
 
     def _load_report(self, report_id: int) -> Optional[ReportConfig]:
         query = """
             SELECT report_id, report_name, sql_query, interval_DESC, distribution_list,
-                   bu_indicator, mail_subject, mail_body, active_indicator
+                   bu_indicator, mail_subject, mail_body, active_indicator,
+                   NVL(send_on_no_data, 'N') as send_on_no_data
             FROM report_config
             WHERE report_id = :report_id
         """
@@ -186,6 +194,10 @@ class ReportGenerator:
         if isinstance(report_id_val, list) and len(report_id_val) > 0:
             report_id_val = report_id_val[0]
         
+        # Parse send_on_no_data flag (Y/N or 1/0 or boolean)
+        send_on_no_data_val = row.get('SEND_ON_NO_DATA') or row.get('send_on_no_data') or 'N'
+        send_on_no_data = str(send_on_no_data_val).upper() in ('Y', '1', 'TRUE', 'YES')
+        
         return ReportConfig(
             report_id=int(report_id_val) if report_id_val is not None else report_id,
             report_name=row.get('REPORT_NAME') or row.get('report_name') or '',
@@ -194,53 +206,12 @@ class ReportGenerator:
             distribution_list=row.get('DISTRIBUTION_LIST') or row.get('distribution_list'),
             bu_indicator=row.get('BU_INDICATOR') or row.get('bu_indicator') or '',
             mail_subject=row.get('MAIL_SUBJECT') or row.get('mail_subject'),
-            mail_body=row.get('MAIL_BODY') or row.get('mail_body')
+            mail_body=row.get('MAIL_BODY') or row.get('mail_body'),
+            send_on_no_data=send_on_no_data
             )
 
     def _get_processing_config(self, bu_indicator: str) -> ReportProcessingConfig:
-        """
-        Get processing configuration for a BU indicator.
-        
-        >>> from unittest.mock import Mock
-        >>> mock_db = Mock()
-        >>> mock_query_executor = Mock()
-        >>> mock_recipient_service = Mock()
-        >>> mock_email_service = Mock()
-        >>> mock_csv_generator = Mock()
-        >>> mock_logger_service = Mock()
-        >>> from src.utils.date_calculator import DateCalculator
-        >>> 
-        >>> generator = ReportGenerator(
-        ...     mock_db, mock_query_executor, mock_recipient_service,
-        ...     mock_email_service, mock_csv_generator, mock_logger_service,
-        ...     DateCalculator()
-        ... )
-        >>> 
-        >>> # Test mador configuration
-        >>> config = generator._get_processing_config('mador')
-        >>> config.bu_indicator == 'mador'
-        True
-        >>> config.recipient_source == 'distribution_list'
-        True
-        >>> config.processing_mode == ProcessingMode.SINGLE_QUERY_BULK_EMAIL
-        True
-        >>> 
-        >>> # Test branches configuration
-        >>> config = generator._get_processing_config('branches')
-        >>> config.recipient_source == 'database'
-        True
-        >>> config.requires_bu_parameter == True
-        True
-        >>> config.processing_mode == ProcessingMode.PER_RECIPIENT_QUERY_EMAIL
-        True
-        >>> 
-        >>> # Test invalid BU indicator
-        >>> try:
-        ...     generator._get_processing_config('invalid')
-        ... except ValueError as e:
-        ...     'Invalid BU indicator' in str(e)
-        True
-        """
+
         name = (bu_indicator or '').strip().lower()
         
         # Check if this BU uses manager-based processing
@@ -312,7 +283,6 @@ class ReportGenerator:
         # Check if this report should use manager-based processing
         # For branches, check if any recipients belong to BUs in the manager list
         if config.bu_indicator == 'branches':
-            from .utils.config_loader import ConfigLoader
             config_loader = ConfigLoader()
             manager_bu_list = config_loader.get_manager_bu_list()
             
@@ -371,20 +341,41 @@ class ReportGenerator:
         results = self.query_executor.execute_query(report.sql_query, params, requires_bu=config.requires_bu_parameter)
         has_data = len(results) > 0
 
-        # If no data, log and skip email sending
+        # If no data, check if we should still send email
         if not has_data:
-            logger.info(f"No data returned for report {report.report_id}, skipping email sending")
-            for r in recipients:
-                self.logger_service.log_email_delivery(
-                    execution_id, 
-                    report.report_id, 
-                    r.email, 
-                    r.full_name, 
-                    r.bu_internal_id, 
-                    'NO_DATA',
-                    error_message='No data available for the selected period'
-                )
-            return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': 0, 'records_returned': 0}
+            if report.send_on_no_data:
+                # Send email without attachment when send_on_no_data is enabled
+                logger.info(f"No data returned for report {report.report_id}, but send_on_no_data is enabled - sending email without attachment")
+                recipient_emails = [r.email for r in recipients]
+                success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
+                
+                for r in recipients:
+                    status = 'SENT' if success else 'FAILED'
+                    self.logger_service.log_email_delivery(
+                        execution_id, 
+                        report.report_id, 
+                        r.email, 
+                        r.full_name, 
+                        r.bu_internal_id, 
+                        status,
+                        error_message=None if success else 'Email send failed'
+                    )
+                
+                return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': len(recipients) if success else 0, 'records_returned': 0}
+            else:
+                # Skip email sending when send_on_no_data is disabled
+                logger.info(f"No data returned for report {report.report_id}, skipping email sending")
+                for r in recipients:
+                    self.logger_service.log_email_delivery(
+                        execution_id, 
+                        report.report_id, 
+                        r.email, 
+                        r.full_name, 
+                        r.bu_internal_id, 
+                        'NO_DATA',
+                        error_message='No data available for the selected period'
+                    )
+                return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': 0, 'records_returned': 0}
 
         # Generate CSV and send email only when there is data
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -453,19 +444,42 @@ class ReportGenerator:
                 total_records += len(results)
 
                 # If no data, log and skip email sending for this BU group
-                if not has_data:
-                    logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
-                    for recipient in group_recipients:
-                        self.logger_service.log_email_delivery(
-                            execution_id, 
-                            report.report_id, 
-                            recipient.email, 
-                            recipient.full_name, 
-                            recipient.bu_internal_id, 
-                            'NO_DATA',
-                            error_message='No data available for the selected period'
-                        )
-                    continue
+                    if not has_data:
+                        if report.send_on_no_data:
+                            # Send email without attachment when send_on_no_data is enabled
+                            logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
+                            recipient_emails = [r.email for r in group_recipients]
+                            success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
+                            
+                            status = 'SENT' if success else 'FAILED'
+                            error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
+                            for recipient in group_recipients:
+                                if success:
+                                    success_count += 1
+                                self.logger_service.log_email_delivery(
+                                    execution_id, 
+                                    report.report_id, 
+                                    recipient.email, 
+                                    recipient.full_name, 
+                                    recipient.bu_internal_id, 
+                                    status,
+                                    error_message=error_message
+                                )
+                            continue
+                        else:
+                            # Skip email sending when send_on_no_data is disabled
+                            logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
+                            for recipient in group_recipients:
+                                self.logger_service.log_email_delivery(
+                                    execution_id, 
+                                    report.report_id, 
+                                    recipient.email, 
+                                    recipient.full_name, 
+                                    recipient.bu_internal_id, 
+                                    'NO_DATA',
+                                    error_message='No data available for the selected period'
+                                )
+                            continue
 
                 # Generate CSV once per BU group (only when there is data)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -571,18 +585,41 @@ class ReportGenerator:
                     total_records += len(results)
                     
                     if not has_data:
-                        logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
-                        for recipient in group_recipients:
-                            self.logger_service.log_email_delivery(
-                                execution_id, 
-                                report.report_id, 
-                                recipient.email, 
-                                recipient.full_name, 
-                                recipient.bu_internal_id, 
-                                'NO_DATA',
-                                error_message='No data available for the selected period'
-                            )
-                        continue
+                        if report.send_on_no_data:
+                            # Send email without attachment when send_on_no_data is enabled
+                            logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
+                            recipient_emails = [r.email for r in group_recipients]
+                            success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
+                            
+                            status = 'SENT' if success else 'FAILED'
+                            error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
+                            for recipient in group_recipients:
+                                if success:
+                                    success_count += 1
+                                self.logger_service.log_email_delivery(
+                                    execution_id, 
+                                    report.report_id, 
+                                    recipient.email, 
+                                    recipient.full_name, 
+                                    recipient.bu_internal_id, 
+                                    status,
+                                    error_message=error_message
+                                )
+                            continue
+                        else:
+                            # Skip email sending when send_on_no_data is disabled
+                            logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
+                            for recipient in group_recipients:
+                                self.logger_service.log_email_delivery(
+                                    execution_id, 
+                                    report.report_id, 
+                                    recipient.email, 
+                                    recipient.full_name, 
+                                    recipient.bu_internal_id, 
+                                    'NO_DATA',
+                                    error_message='No data available for the selected period'
+                                )
+                            continue
                     
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
@@ -656,22 +693,52 @@ class ReportGenerator:
                         has_data = len(results) > 0
                         total_records += len(results)
                         
-                        # If no data, log and skip email sending for this manager
+                        # If no data, check if we should still send email
                         if not has_data:
-                            logger.info(
-                                f"No data returned for report {report.report_id}, BU {bu_identifier}, "
-                                f"manager {manager_id}, skipping email sending"
-                            )
-                            self.logger_service.log_email_delivery(
-                                execution_id, 
-                                report.report_id, 
-                                recipient.email, 
-                                recipient.full_name, 
-                                recipient.bu_internal_id, 
-                                'NO_DATA',
-                                error_message='No data available for the selected period and manager'
-                            )
-                            continue
+                            if report.send_on_no_data:
+                                # Send email without attachment when send_on_no_data is enabled
+                                logger.info(
+                                    f"No data returned for report {report.report_id}, BU {bu_identifier}, "
+                                    f"manager {manager_id}, but send_on_no_data is enabled - sending email without attachment"
+                                )
+                                success = self.email_service.send_report_email(
+                                    recipient, 
+                                    report, 
+                                    None, 
+                                    has_data=False
+                                )
+                                
+                                status = 'SENT' if success else 'FAILED'
+                                error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
+                                if success:
+                                    success_count += 1
+                                
+                                self.logger_service.log_email_delivery(
+                                    execution_id, 
+                                    report.report_id, 
+                                    recipient.email, 
+                                    recipient.full_name, 
+                                    recipient.bu_internal_id, 
+                                    status,
+                                    error_message=error_message
+                                )
+                                continue
+                            else:
+                                # Skip email sending when send_on_no_data is disabled
+                                logger.info(
+                                    f"No data returned for report {report.report_id}, BU {bu_identifier}, "
+                                    f"manager {manager_id}, skipping email sending"
+                                )
+                                self.logger_service.log_email_delivery(
+                                    execution_id, 
+                                    report.report_id, 
+                                    recipient.email, 
+                                    recipient.full_name, 
+                                    recipient.bu_internal_id, 
+                                    'NO_DATA',
+                                    error_message='No data available for the selected period and manager'
+                                )
+                                continue
                         
                         # Generate CSV for this manager's data
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -156,7 +156,10 @@ class EmailService:
             body_parts.append("")
         
         if not has_data:
-            body_parts.append("No data available for the selected period.")
+            # Custom message for no-data scenario
+            body_parts.append("This report contains no results for the selected period.")
+            body_parts.append("")
+            body_parts.append("No data matching the report criteria was found.")
         else:
             body_parts.append("Please find the report data attached as a CSV file.")
         
