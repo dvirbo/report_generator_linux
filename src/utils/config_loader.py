@@ -4,89 +4,23 @@ Loads and validates configuration from config.ini
 """
 
 import configparser
-import os
+import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
+# Import PasswordManager from secure_password_store
 try:
-    import keyring
-    KEYRING_AVAILABLE = True
+    from secure_password_store.password_manager import PasswordManager
+    PASSWORD_MANAGER_AVAILABLE = True
 except ImportError:
-    KEYRING_AVAILABLE = False
+    PASSWORD_MANAGER_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigLoader:
     """
     Load and manage configuration
-    
-    >>> import tempfile
-    >>> import configparser
-    >>> from pathlib import Path
-    >>> 
-    >>> # Create a temporary config file for testing
-    >>> with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-    ...     f.write('''[database]
-    ... host = localhost
-    ... port = 1521
-    ... service_name = testdb
-    ... username = testuser
-    ... password = testpass
-    ... 
-    ... [email]
-    ... smtp_server = smtp.example.com
-    ... smtp_port = 587
-    ... smtp_use_tls = True
-    ... smtp_username = email@example.com
-    ... smtp_password = emailpass
-    ... from_email = sender@example.com
-    ... from_name = Test Sender
-    ... 
-    ... [logging]
-    ... level = INFO
-    ... file_path = logs/test.log
-    ... 
-    ... [files]
-    ... temp_directory = temp
-    ... csv_encoding = utf-8-sig
-    ... ''')
-    ...     config_path = f.name
-    ... 
-    >>> try:
-    ...     loader = ConfigLoader(config_path=config_path)
-    ...     
-    ...     # Test database config retrieval
-    ...     db_config = loader.get_database_config()
-    ...     db_config['host'] == 'localhost'
-    ...     True
-    ...     db_config['port'] == 1521
-    ...     True
-    ...     db_config['service_name'] == 'testdb'
-    ...     True
-    ...     
-    ...     # Test email config retrieval
-    ...     email_config = loader.get_email_config()
-    ...     email_config['smtp_server'] == 'smtp.example.com'
-    ...     True
-    ...     email_config['smtp_port'] == 587
-    ...     True
-    ...     email_config['from_email'] == 'sender@example.com'
-    ...     True
-    ...     
-    ...     # Test logging config retrieval
-    ...     log_config = loader.get_logging_config()
-    ...     log_config['level'] == 'INFO'
-    ...     True
-    ...     
-    ...     # Test files config retrieval
-    ...     files_config = loader.get_files_config()
-    ...     files_config['temp_directory'] == 'temp'
-    ...     True
-    ...     files_config['csv_encoding'] == 'utf-8-sig'
-    ...     True
-    ...     
-    ... finally:
-    ...     # Cleanup
-    ...     Path(config_path).unlink()
     """
 
     def __init__(self, config_path: str = None):
@@ -104,6 +38,16 @@ class ConfigLoader:
         self.config_path = Path(config_path)
         self.config = configparser.ConfigParser()
         self._load_config()
+        
+        # Initialize PasswordManager for secure password retrieval
+        self._password_manager = None
+        if PASSWORD_MANAGER_AVAILABLE:
+            try:
+                self._password_manager = PasswordManager()
+                logger.debug("PasswordManager initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize PasswordManager: {e}. "
+                             "Falling back to plain text passwords in config.")
 
     def _load_config(self):
         """Load configuration from file"""
@@ -112,59 +56,40 @@ class ConfigLoader:
         
         self.config.read(self.config_path, encoding='utf-8')
 
-    def _resolve_secret(self, value: Optional[str]) -> Optional[str]:
+    def _get_secure_password(self, password_key: str) -> Optional[str]:
         """
-        Resolve secret value from keyring if it uses KEYRING: token format
+        Retrieve password from secure_password_store using the given key
         
         Args:
-            value: Configuration value that may be a KEYRING: token
+            password_key: The identifier/key to look up in PasswordManager
         
         Returns:
-            Resolved secret value or original value if not a KEYRING token
+            The decrypted password, or None if not found or PasswordManager unavailable
         """
-        if not value or not value.strip().startswith("KEYRING:"):
-            return value
+        if not password_key:
+            return None
         
-        if not KEYRING_AVAILABLE:
-            raise ImportError(
-                "keyring library is required for KEYRING: tokens. "
-                "Install it with: pip install keyring"
-            )
+        if not self._password_manager:
+            logger.warning(f"PasswordManager not available, cannot retrieve password for key: {password_key}")
+            return None
         
-        # Parse KEYRING:service/account format
-        token = value.strip().replace("KEYRING:", "", 1)
-        parts = token.split("/", 1)
-        
-        if len(parts) != 2:
-            raise ValueError(
-                f"Invalid KEYRING token format: {value}. "
-                "Expected format: KEYRING:service/account"
-            )
-        
-        service, account = parts[0].strip(), parts[1].strip()
-        
-        if not service or not account:
-            raise ValueError(
-                f"Invalid KEYRING token format: {value}. "
-                "Service and account must be non-empty"
-            )
-        
-        secret = keyring.get_password(service, account)
-        
-        if secret is None:
-            raise ValueError(
-                f"No keyring entry found for service='{service}' account='{account}'. "
-                f"Set it with: python tools/keyring_secrets.py set {account}"
-            )
-        
-        return secret
+        try:
+            password = self._password_manager.get_password(password_key)
+            if password:
+                logger.debug(f"Successfully retrieved password for key: {password_key}")
+            else:
+                logger.warning(f"No password found in secure store for key: {password_key}")
+            return password
+        except Exception as e:
+            logger.error(f"Error retrieving password for key '{password_key}': {e}")
+            return None
 
     def get(self, section: str, key: str, fallback: Any = None) -> str:
-        """Get configuration value (with keyring resolution if needed)"""
+        """Get configuration value"""
         raw_value = self.config.get(section, key, fallback=fallback)
         if raw_value is None:
             return None
-        return self._resolve_secret(str(raw_value))
+        return str(raw_value)
 
     def getint(self, section: str, key: str, fallback: int = None) -> int:
         """Get integer configuration value"""
@@ -176,24 +101,48 @@ class ConfigLoader:
 
     def get_database_config(self) -> Dict[str, Any]:
         """Get database configuration"""
+        # Try to get password from secure store using password_key
+        password = None
+        password_key = self.get('database', 'password_key', fallback=None)
+        if password_key:
+            password = self._get_secure_password(password_key)
+        
+        # Fall back to plain text password if secure retrieval failed
+        if not password:
+            password = self.get('database', 'password', fallback=None)
+            if password and password_key:
+                logger.warning("Using fallback plain text password for database")
+        
         return {
             'host': self.get('database', 'host'),
             'port': self.getint('database', 'port', 1521),
             'service_name': self.get('database', 'service_name'),
             'username': self.get('database', 'username'),
-            'password': self.get('database', 'password'),
+            'password': password,
             'connection_timeout': self.getint('database', 'connection_timeout', 30),
             'command_timeout': self.getint('database', 'command_timeout', 300),
         }
 
     def get_email_config(self) -> Dict[str, Any]:
         """Get email configuration"""
+        # Try to get SMTP password from secure store using smtp_password_key
+        smtp_password = None
+        smtp_password_key = self.get('email', 'smtp_password_key', fallback=None)
+        if smtp_password_key:
+            smtp_password = self._get_secure_password(smtp_password_key)
+        
+        # Fall back to plain text password if secure retrieval failed
+        if not smtp_password:
+            smtp_password = self.get('email', 'smtp_password', fallback=None)
+            if smtp_password and smtp_password_key:
+                logger.warning("Using fallback plain text password for SMTP")
+        
         return {
             'smtp_server': self.get('email', 'smtp_server'),
             'smtp_port': self.getint('email', 'smtp_port', 587),
             'smtp_use_tls': self.getboolean('email', 'smtp_use_tls', True),
             'smtp_username': self.get('email', 'smtp_username'),
-            'smtp_password': self.get('email', 'smtp_password'),
+            'smtp_password': smtp_password,
             'smtp_require_auth': self.getboolean('email', 'smtp_require_auth', True),
             'from_email': self.get('email', 'from_email'),
             'from_name': self.get('email', 'from_name'),

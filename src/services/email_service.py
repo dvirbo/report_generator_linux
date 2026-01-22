@@ -193,34 +193,45 @@ class EmailService:
             with open(file_path, 'rb') as f:
                 file_data = f.read()
             
-            # Create attachment part using MIMEBase
-            # Start with application/octet-stream, then override with proper CSV type
-            part = MIMEBase('application', 'octet-stream')
+            # Use text/csv MIME type (matching the working test script)
+            # The key difference: use add_header with keyword arguments for proper RFC 2231 encoding
+            # of non-ASCII characters (Hebrew) in the filename
+            part = MIMEBase('text', 'csv')
             part.set_payload(file_data)
-            
-            # Encode as base64 for email transmission
             encoders.encode_base64(part)
             
-            # Set Content-Type header explicitly for CSV
-            # Use application/vnd.ms-excel for maximum compatibility with email clients
-            # This MIME type is widely recognized and ensures CSV files open in Excel
-            # Many email clients treat text/csv or application/csv as plain text
+            # Set Content-Type with proper parameter encoding for non-ASCII filenames
+            # Using keyword argument syntax tells Python to properly encode the filename
             if 'Content-Type' in part:
                 del part['Content-Type']
-            # application/vnd.ms-excel is the most compatible for CSV files in email
-            part.add_header('Content-Type', 'application/vnd.ms-excel; charset=utf-8; name="{}"'.format(filename))
+            part.add_header('Content-Type', 'text/csv', charset='utf-8', name=filename)
             
-            # Set Content-Disposition header with the exact filename from saved CSV
-            # The filename already has the meaningful name from CSV generator (e.g., report_ReportName_20250101_120000.csv)
-            # The .csv extension in the filename is critical for email clients to recognize it as CSV
-            part.add_header(
-                'Content-Disposition',
-                'attachment; filename="{}"'.format(filename)
-            )
+            # Set Content-Disposition with proper RFC 2231 encoding for non-ASCII filenames
+            # This is the KEY FIX: using keyword argument instead of string formatting
+            # Python's email library will properly encode Hebrew characters
+            part.add_header('Content-Disposition', 'attachment', filename=filename)
+            
+            # Log the actual headers being set for debugging
+            logger.debug(f"CSV attachment headers - Content-Type: {part.get('Content-Type')}, "
+                        f"Content-Disposition: {part.get('Content-Disposition')}, filename: {filename}")
+            
+            # Additional check: verify the filename has .csv extension
+            if not filename.lower().endswith('.csv'):
+                logger.warning(f"WARNING: Filename does not end with .csv: {filename}")
             
             msg.attach(part)
             
+            # Log final message structure for debugging
             logger.debug(f"Attached CSV file: {csv_filepath} with filename: {filename}")
+            logger.debug(f"Final attachment Content-Type: {part.get('Content-Type')}")
+            logger.debug(f"Final attachment Content-Disposition: {part.get('Content-Disposition')}")
+            
+            # Additional debugging: log all headers on the part
+            logger.debug(f"All attachment headers: {dict(part.items())}")
+            
+            # Verify the filename has .csv extension - this is critical
+            if not filename.lower().endswith('.csv'):
+                logger.error(f"ERROR: Filename does not end with .csv: {filename}")
             
         except Exception as e:
             logger.error(f"Failed to attach CSV file: {e}")
@@ -294,6 +305,17 @@ class EmailService:
             elif not self.smtp_require_auth:
                 logger.debug("SMTP authentication disabled in config - sending without authentication")
                 auth_successful = False  # Not required, so we're good
+            
+            # Log full message structure before sending for debugging
+            logger.debug("=== Full message structure before sending ===")
+            logger.debug(f"Message headers: {dict(msg.items())}")
+            for i, payload_part in enumerate(msg.get_payload()):
+                if isinstance(payload_part, MIMEBase):
+                    logger.debug(f"Part {i}: Content-Type={payload_part.get('Content-Type')}, "
+                              f"Content-Disposition={payload_part.get('Content-Disposition')}")
+                elif hasattr(payload_part, 'get_content_type'):
+                    logger.debug(f"Part {i}: Content-Type={payload_part.get_content_type()}")
+            logger.debug("=== End message structure ===")
             
             # Send the email
             server.send_message(msg, to_addrs=recipients)
