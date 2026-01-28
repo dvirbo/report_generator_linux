@@ -5,12 +5,14 @@ Send email reports with CSV attachments
 
 import smtplib
 import logging
+import csv
+import html
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from ..models.recipient import Recipient
 from ..models.report_config import ReportConfig
 
@@ -43,6 +45,7 @@ class EmailService:
         self.smtp_require_auth = config.get('smtp_require_auth', default_require_auth)
         self.from_email = config.get('from_email')
         self.from_name = config.get('from_name', 'Automated Report System')
+        self.attach_csv = config.get('attach_csv', True)
 
     def send_report_email(
         self,
@@ -64,20 +67,20 @@ class EmailService:
             True if email sent successfully
         """
         try:
-            # Create message
-            msg = MIMEMultipart()
+            # Create message (outer mixed, inner alternative for plain+HTML)
+            msg = MIMEMultipart('mixed')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = recipient.email
             # Set subject - use report subject or generate one
             subject = report.mail_subject or f"Report: {report.report_name}"
             msg['Subject'] = subject
             
-            # Build email body
-            body = self._build_email_content(report, has_data)
-            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            # Build multipart/alternative body (plain + HTML).
+            alt = self._build_alternative_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
+            msg.attach(alt)
             
-            # Attach CSV file if provided and has data
-            if csv_filepath and has_data:
+            # Attach CSV file optionally (HTML body always includes a table when CSV exists)
+            if self.attach_csv and csv_filepath and has_data:
                 self._attach_csv_file(msg, csv_filepath)
             
             # Send email
@@ -110,20 +113,20 @@ class EmailService:
             True if all emails sent successfully
         """
         try:
-            # Create message
-            msg = MIMEMultipart()
+            # Create message (outer mixed, inner alternative for plain+HTML)
+            msg = MIMEMultipart('mixed')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = ', '.join(recipients)
             # Set subject - use report subject or generate one
             subject = report.mail_subject or f"Report: {report.report_name}"
             msg['Subject'] = subject
             
-            # Build email body
-            body = self._build_email_content(report, has_data)
-            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            # Build multipart/alternative body (plain + HTML).
+            alt = self._build_alternative_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
+            msg.attach(alt)
             
-            # Attach CSV file if provided and has data
-            if csv_filepath and has_data:
+            # Attach CSV file optionally (HTML body always includes a table when CSV exists)
+            if self.attach_csv and csv_filepath and has_data:
                 self._attach_csv_file(msg, csv_filepath)
             
             # Send email
@@ -138,7 +141,9 @@ class EmailService:
 
     def _build_email_content(self, report: ReportConfig, has_data: bool) -> str:
         """
-        Build email body content
+        Build legacy plain-text email content.
+
+        Note: New pipeline uses multipart/alternative with both plain-text and HTML bodies.
         
         Args:
             report: ReportConfig object
@@ -167,6 +172,156 @@ class EmailService:
         body_parts.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         return "\n".join(body_parts)
+
+    def _build_alternative_body(
+        self,
+        report: ReportConfig,
+        has_data: bool,
+        csv_filepath: Optional[str],
+    ) -> MIMEMultipart:
+        """
+        Build multipart/alternative email body:
+        - Plain-text fallback part
+        - HTML part (mandatory). If CSV exists, HTML includes a table rendering of the CSV.
+        """
+        alt = MIMEMultipart('alternative')
+
+        plain = self._build_plain_text_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
+        html_body = self._build_html_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
+
+        alt.attach(MIMEText(plain, 'plain', 'utf-8'))
+        alt.attach(MIMEText(html_body, 'html', 'utf-8'))
+        return alt
+
+    def _build_plain_text_body(self, report: ReportConfig, has_data: bool, csv_filepath: Optional[str]) -> str:
+        """
+        Plain-text fallback body. If a CSV exists, includes the raw CSV text (no truncation).
+        """
+        base = self._build_email_content(report, has_data)
+        if not (csv_filepath and has_data):
+            return base
+
+        csv_text = self._read_csv_as_text(csv_filepath)
+        return (
+            base
+            + "\n\n"
+            + "CSV data:\n"
+            + csv_text
+        )
+
+    def _build_html_body(self, report: ReportConfig, has_data: bool, csv_filepath: Optional[str]) -> str:
+        """
+        HTML email body (mandatory). If a CSV exists, renders it as an HTML table with:
+        - first row as <th> headers
+        - remaining rows as <td>
+        - all rows included (no truncation)
+        - HTML-escaped cell contents
+        """
+        from datetime import datetime
+
+        report_title = html.escape(report.report_name or "Report")
+        intro_parts: List[str] = []
+
+        if report.mail_body:
+            # Preserve basic formatting of mail_body while still escaping HTML.
+            intro_parts.append("<div>")
+            intro_parts.append(html.escape(report.mail_body).replace("\n", "<br/>"))
+            intro_parts.append("</div>")
+
+        if not has_data:
+            intro_parts.append("<p>This report contains no results for the selected period.</p>")
+        else:
+            intro_parts.append("<p>CSV data is included below.</p>")
+
+        intro_parts.append("<p><small>Generated: {}</small></p>".format(
+            html.escape(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        ))
+
+        table_html = ""
+        if csv_filepath and has_data:
+            rows = self._read_csv_rows(csv_filepath)
+            table_html = self._csv_rows_to_html_table(rows)
+
+        return (
+            "<!doctype html>"
+            "<html>"
+            "<head>"
+            "<meta charset=\"utf-8\"/>"
+            "<style>"
+            "table{border-collapse:collapse;width:100%;}"
+            "th,td{border:1px solid #ddd;padding:6px;vertical-align:top;}"
+            "th{background:#f5f5f5;text-align:left;}"
+            "</style>"
+            "</head>"
+            "<body>"
+            "<h3>{}</h3>"
+            "{}"
+            "{}"
+            "</body>"
+            "</html>"
+        ).format(report_title, "".join(intro_parts), table_html)
+
+    def _read_csv_as_text(self, csv_filepath: str) -> str:
+        """
+        Read the CSV as text using utf-8-sig to handle BOM.
+        """
+        file_path = Path(csv_filepath)
+        if not file_path.exists():
+            return "(CSV file not found)"
+        with open(file_path, 'r', encoding='utf-8-sig', newline='') as f:
+            return f.read()
+
+    def _sniff_csv_delimiter(self, sample: str) -> str:
+        """
+        Attempt to detect delimiter using csv.Sniffer; fallback to comma.
+        """
+        try:
+            dialect = csv.Sniffer().sniff(sample)
+            return getattr(dialect, 'delimiter', ',') or ','
+        except Exception:
+            return ','
+
+    def _read_csv_rows(self, csv_filepath: str) -> List[List[str]]:
+        """
+        Read CSV rows from disk (no truncation).
+        - Detect delimiter when possible (csv.Sniffer), fallback to comma.
+        - Read with utf-8-sig to handle BOM.
+        """
+        file_path = Path(csv_filepath)
+        if not file_path.exists():
+            logger.warning(f"CSV file not found for HTML rendering: {csv_filepath}")
+            return []
+
+        # Read a sample for delimiter detection.
+        with open(file_path, 'r', encoding='utf-8-sig', newline='') as f:
+            sample = f.read(32768)
+            delimiter = self._sniff_csv_delimiter(sample)
+            f.seek(0)
+            reader = csv.reader(f, delimiter=delimiter)
+            return [[cell if cell is not None else "" for cell in row] for row in reader]
+
+    def _csv_rows_to_html_table(self, rows: List[List[str]]) -> str:
+        """
+        Convert CSV rows into an HTML <table>.
+        First row is headers (<th>), remaining rows are data (<td>).
+        Escapes all cell contents for safe HTML.
+        """
+        if not rows:
+            return "<p><em>No CSV rows found.</em></p>"
+
+        header = rows[0]
+        data_rows = rows[1:] if len(rows) > 1 else []
+
+        def th(cell: str) -> str:
+            return "<th>{}</th>".format(html.escape(str(cell)))
+
+        def td(cell: str) -> str:
+            return "<td>{}</td>".format(html.escape(str(cell)))
+
+        head_html = "<tr>{}</tr>".format("".join(th(c) for c in header))
+        body_html = "".join("<tr>{}</tr>".format("".join(td(c) for c in row)) for row in data_rows)
+
+        return "<table><thead>{}</thead><tbody>{}</tbody></table>".format(head_html, body_html)
 
     def _attach_csv_file(self, msg: MIMEMultipart, csv_filepath: str):
         """

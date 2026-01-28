@@ -147,6 +147,8 @@ class ConfigLoader:
             'from_email': self.get('email', 'from_email'),
             'from_name': self.get('email', 'from_name'),
             'max_email_size_kb': self.getint('email', 'max_email_size_kb', 10240),
+            # Whether to attach the CSV file (HTML body still includes a table rendering)
+            'attach_csv': self.getboolean('email', 'attach_csv', True),
         }
 
     def get_logging_config(self) -> Dict[str, Any]:
