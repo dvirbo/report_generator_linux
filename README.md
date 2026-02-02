@@ -284,7 +284,7 @@ python main.py last_bd 2025-01-15
 
 The system logs to:
 - **File**: `logs/report_generator_<interval>_<YYYYMMDD>.log`
-- **Database**: `report_execution_log` and `report_email_delivery_log` tables
+- **Database**: `report_execution_log` table
 
 Log levels can be configured in `config.ini`:
 ```ini
@@ -314,7 +314,6 @@ log_to_console = no
 
 ### Logging Tables
 - `report_execution_log` - Report execution history
-- `report_email_delivery_log` - Email delivery tracking
 
 ### User Tables
 - `actone.acm_users` - User and recipient information
@@ -347,7 +346,6 @@ log_to_console = no
    - Check firewall/network connectivity
 
 2. **Check email logs:**
-   - Review `report_email_delivery_log` table
    - Check application logs for SMTP errors
 
 ### Query execution errors

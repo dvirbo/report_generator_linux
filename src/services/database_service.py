@@ -169,7 +169,10 @@ class DatabaseService:
             cursor.close()
             return rows_affected
         except Exception as e:
+            # Log the statement so it's clear which operation failed
+            query_preview = (query.strip()[:200] + '...') if len(query.strip()) > 200 else query.strip()
             logger.error(f"Non-query execution failed: {e}")
+            logger.error(f"Statement: {query_preview}")
             self.connection.rollback()
             raise
 

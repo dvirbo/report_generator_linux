@@ -348,33 +348,10 @@ class ReportGenerator:
                 logger.info(f"No data returned for report {report.report_id}, but send_on_no_data is enabled - sending email without attachment")
                 recipient_emails = [r.email for r in recipients]
                 success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
-                
-                for r in recipients:
-                    status = 'SENT' if success else 'FAILED'
-                    self.logger_service.log_email_delivery(
-                        execution_id, 
-                        report.report_id, 
-                        r.email, 
-                        r.full_name, 
-                        r.bu_internal_id, 
-                        status,
-                        error_message=None if success else 'Email send failed'
-                    )
-                
                 return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': len(recipients) if success else 0, 'records_returned': 0}
             else:
                 # Skip email sending when send_on_no_data is disabled
                 logger.info(f"No data returned for report {report.report_id}, skipping email sending")
-                for r in recipients:
-                    self.logger_service.log_email_delivery(
-                        execution_id, 
-                        report.report_id, 
-                        r.email, 
-                        r.full_name, 
-                        r.bu_internal_id, 
-                        'NO_DATA',
-                        error_message='No data available for the selected period'
-                    )
                 return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': 0, 'records_returned': 0}
 
         # Generate CSV and send email only when there is data
@@ -383,10 +360,6 @@ class ReportGenerator:
         
         recipient_emails = [r.email for r in recipients]
         success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
-
-        for r in recipients:
-            status = 'SENT' if success else 'FAILED'
-            self.logger_service.log_email_delivery(execution_id, report.report_id, r.email, r.full_name, r.bu_internal_id, status)
 
         if csv_filepath:
             self.csv_generator.cleanup_file(csv_filepath)
@@ -450,35 +423,12 @@ class ReportGenerator:
                         logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
                         recipient_emails = [r.email for r in group_recipients]
                         success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
-                        
-                        status = 'SENT' if success else 'FAILED'
-                        error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
-                        for recipient in group_recipients:
-                            if success:
-                                success_count += 1
-                            self.logger_service.log_email_delivery(
-                                execution_id, 
-                                report.report_id, 
-                                recipient.email, 
-                                recipient.full_name, 
-                                recipient.bu_internal_id, 
-                                status,
-                                error_message=error_message
-                            )
+                        if success:
+                            success_count += len(group_recipients)
                         continue
                     else:
                         # Skip email sending when send_on_no_data is disabled
                         logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
-                        for recipient in group_recipients:
-                            self.logger_service.log_email_delivery(
-                                execution_id, 
-                                report.report_id, 
-                                recipient.email, 
-                                recipient.full_name, 
-                                recipient.bu_internal_id, 
-                                'NO_DATA',
-                                error_message='No data available for the selected period'
-                            )
                         continue
 
                 # Generate CSV once per BU group (only when there is data)
@@ -488,22 +438,8 @@ class ReportGenerator:
                 # Send one email to all recipients in the group
                 recipient_emails = [r.email for r in group_recipients]
                 success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
-                
-                # Log email delivery for all recipients in the group
-                status = 'SENT' if success else 'FAILED'
-                error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
-                for recipient in group_recipients:
-                    if success:
-                        success_count += 1
-                    self.logger_service.log_email_delivery(
-                        execution_id, 
-                        report.report_id, 
-                        recipient.email, 
-                        recipient.full_name, 
-                        recipient.bu_internal_id, 
-                        status,
-                        error_message=error_message
-                    )
+                if success:
+                    success_count += len(group_recipients)
 
                 # Cleanup CSV file
                 if csv_filepath:
@@ -511,17 +447,6 @@ class ReportGenerator:
 
             except Exception as e:
                 logger.error(f"Failed to process BU group {bu_identifier}: {e}")
-                # Log failure for all recipients in the group
-                for recipient in group_recipients:
-                    self.logger_service.log_email_delivery(
-                        execution_id, 
-                        report.report_id, 
-                        recipient.email, 
-                        recipient.full_name, 
-                        recipient.bu_internal_id, 
-                        'FAILED',
-                        error_message=str(e)
-                    )
 
         return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': success_count, 'records_returned': total_records}
 
@@ -590,56 +515,20 @@ class ReportGenerator:
                             logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
                             recipient_emails = [r.email for r in group_recipients]
                             success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
-                            
-                            status = 'SENT' if success else 'FAILED'
-                            error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
-                            for recipient in group_recipients:
-                                if success:
-                                    success_count += 1
-                                self.logger_service.log_email_delivery(
-                                    execution_id, 
-                                    report.report_id, 
-                                    recipient.email, 
-                                    recipient.full_name, 
-                                    recipient.bu_internal_id, 
-                                    status,
-                                    error_message=error_message
-                                )
+                            if success:
+                                success_count += len(group_recipients)
                             continue
                         else:
                             # Skip email sending when send_on_no_data is disabled
                             logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, skipping email sending")
-                            for recipient in group_recipients:
-                                self.logger_service.log_email_delivery(
-                                    execution_id, 
-                                    report.report_id, 
-                                    recipient.email, 
-                                    recipient.full_name, 
-                                    recipient.bu_internal_id, 
-                                    'NO_DATA',
-                                    error_message='No data available for the selected period'
-                                )
                             continue
                     
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
                     recipient_emails = [r.email for r in group_recipients]
                     success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
-                    
-                    status = 'SENT' if success else 'FAILED'
-                    error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
-                    for recipient in group_recipients:
-                        if success:
-                            success_count += 1
-                        self.logger_service.log_email_delivery(
-                            execution_id, 
-                            report.report_id, 
-                            recipient.email, 
-                            recipient.full_name, 
-                            recipient.bu_internal_id, 
-                            status,
-                            error_message=error_message
-                        )
+                    if success:
+                        success_count += len(group_recipients)
                     
                     if csv_filepath:
                         self.csv_generator.cleanup_file(csv_filepath)
@@ -653,16 +542,6 @@ class ReportGenerator:
                 
                 if not manager_ids:
                     logger.warning(f"No manager IDs found for BU {bu_identifier}")
-                    for recipient in group_recipients:
-                        self.logger_service.log_email_delivery(
-                            execution_id, 
-                            report.report_id, 
-                            recipient.email, 
-                            recipient.full_name, 
-                            recipient.bu_internal_id, 
-                            'NO_DATA',
-                            error_message='No manager IDs found for this branch'
-                        )
                     continue
                 
                 if len(manager_ids) != len(group_recipients):
@@ -707,36 +586,14 @@ class ReportGenerator:
                                     None, 
                                     has_data=False
                                 )
-                                
-                                status = 'SENT' if success else 'FAILED'
-                                error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
                                 if success:
                                     success_count += 1
-                                
-                                self.logger_service.log_email_delivery(
-                                    execution_id, 
-                                    report.report_id, 
-                                    recipient.email, 
-                                    recipient.full_name, 
-                                    recipient.bu_internal_id, 
-                                    status,
-                                    error_message=error_message
-                                )
                                 continue
                             else:
                                 # Skip email sending when send_on_no_data is disabled
                                 logger.info(
                                     f"No data returned for report {report.report_id}, BU {bu_identifier}, "
                                     f"manager {manager_id}, skipping email sending"
-                                )
-                                self.logger_service.log_email_delivery(
-                                    execution_id, 
-                                    report.report_id, 
-                                    recipient.email, 
-                                    recipient.full_name, 
-                                    recipient.bu_internal_id, 
-                                    'NO_DATA',
-                                    error_message='No data available for the selected period and manager'
                                 )
                                 continue
                         
@@ -755,22 +612,8 @@ class ReportGenerator:
                             csv_filepath, 
                             has_data
                         )
-                        
-                        # Log email delivery
-                        status = 'SENT' if success else 'FAILED'
-                        error_message = None if success else EMAIL_SEND_FAILED_MESSAGE
                         if success:
                             success_count += 1
-                        
-                        self.logger_service.log_email_delivery(
-                            execution_id, 
-                            report.report_id, 
-                            recipient.email, 
-                            recipient.full_name, 
-                            recipient.bu_internal_id, 
-                            status,
-                            error_message=error_message
-                        )
                         
                         # Cleanup CSV file
                         if csv_filepath:
@@ -781,32 +624,9 @@ class ReportGenerator:
                             f"Failed to process manager {manager_id} for BU {bu_identifier}: {e}",
                             exc_info=True
                         )
-                        # Log failure for this manager
-                        if idx < len(group_recipients):
-                            recipient = group_recipients[idx]
-                            self.logger_service.log_email_delivery(
-                                execution_id, 
-                                report.report_id, 
-                                recipient.email, 
-                                recipient.full_name, 
-                                recipient.bu_internal_id, 
-                                'FAILED',
-                                error_message=str(e)
-                            )
                 
             except Exception as e:
                 logger.error(f"Failed to process BU group {bu_identifier}: {e}", exc_info=True)
-                # Log failure for all recipients in the group
-                for recipient in group_recipients:
-                    self.logger_service.log_email_delivery(
-                        execution_id, 
-                        report.report_id, 
-                        recipient.email, 
-                        recipient.full_name, 
-                        recipient.bu_internal_id, 
-                        'FAILED',
-                        error_message=str(e)
-                    )
         
         return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': success_count, 'records_returned': total_records}
 

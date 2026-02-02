@@ -1,0 +1,9 @@
+
+
+all the reports exept last_bd need to run the sysdate,
+ the last_bd interval should get a date as a param.
+
+ we need to update the way we claculate the intervals - 
+ instead of getting the first date of the interval - we will get the last date of the interval.
+ this is relevant for 'weekly','monthly','quarterly','yearly'.
+ also, we don't use the yesterday interval anymore - delete it from @Date Calculator and the @README

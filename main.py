@@ -1,7 +1,7 @@
 """
 Report Generator System - Main Entry Point
 Usage:
-    python main.py <interval> <yyyy-mm-dd>
+    python main.py <interval> <dd/mm/yyyy>
     interval: bi-daily | daily | weekly | monthly | quarterly | yearly | yesterday
 """
 
@@ -61,14 +61,14 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py daily 2025-01-01  (yyyy-mm-dd format)
-  python3 main.py last_bd 2025-01-01
+  python main.py daily 01/01/2025  (dd/mm/yyyy format)
+  python3 main.py last_bd 01/01/2025
 
 Valid intervals: bi-daily, daily, weekly, monthly, quarterly, yearly, yesterday, last_bd
         """
     )
     parser.add_argument('interval', help='Interval name (bi-daily, daily, weekly, monthly, quarterly, yearly, yesterday)')
-    parser.add_argument('date', help='Base date in yyyy-mm-dd format (interpreted per interval semantics)')
+    parser.add_argument('date', help='Base date in dd/mm/yyyy format (interpreted per interval semantics)')
     return parser.parse_args()
 
 
@@ -82,9 +82,9 @@ def main():
             sys.exit(1)
 
         try:
-            base_datetime = datetime.strptime(args.date, "%Y-%m-%d")
+            base_datetime = datetime.strptime(args.date, "%d/%m/%Y")
         except ValueError:
-            print(f"Error: Invalid date '{args.date}'. Expected yyyy-mm-dd")
+            print(f"Error: Invalid date '{args.date}'. Expected dd/mm/yyyy")
             sys.exit(1)
 
         config = ConfigLoader()

@@ -123,67 +123,6 @@ class LoggerService:
             logger.error(f"Failed to log execution end: {e}")
             self.db_service.rollback()
 
-    def log_email_delivery(
-        self,
-        execution_id: int,
-        report_id: int,
-        recipient_email: str,
-        recipient_name: Optional[str],
-        bu_internal_id: Optional[int],
-        status: str,
-        error_message: Optional[str] = None,
-        email_size_kb: Optional[int] = None
-    ):
-        """
-        Log email delivery
-        
-        Args:
-            execution_id: Execution ID
-            report_id: Report ID
-            recipient_email: Recipient email address
-            recipient_name: Recipient name
-            bu_internal_id: BU internal ID
-            status: Delivery status (SENT/FAILED/BOUNCED)
-            error_message: Error message if failed
-            email_size_kb: Email size in KB
-        """
-        query = """
-            INSERT INTO report_email_delivery_log
-            (execution_id, report_id, recipient_email, recipient_name, bu_internal_id,
-             sent_timestamp, delivery_status, error_message, email_size_kb)
-            VALUES (:execution_id, :report_id, :recipient_email, :recipient_name, :bu_internal_id,
-                    SYSDATE, :delivery_status, :error_message, :email_size_kb)
-        """
-        
-        try:
-            params = {
-                'execution_id': execution_id,
-                'report_id': report_id,
-                'recipient_email': recipient_email,
-                'recipient_name': recipient_name,
-                'bu_internal_id': bu_internal_id,
-                'delivery_status': status,
-                'error_message': error_message,
-                'email_size_kb': email_size_kb
-            }
-            
-            self.db_service.execute_non_query(query, params)
-            self.db_service.commit()
-            
-            logger.debug(f"Logged email delivery: {recipient_email} - {status}")
-            
-        except Exception as e:
-            # Check if it's a "table does not exist" error
-            error_msg = str(e)
-            if 'ORA-00942' in error_msg or 'table or view does not exist' in error_msg.lower():
-                logger.warning(f"Table report_email_delivery_log does not exist. Email delivery logging skipped.")
-                logger.warning(f"To enable email delivery logging, create the report_email_delivery_log table.")
-                # Don't raise - allow the process to continue without logging
-            else:
-                logger.error(f"Failed to log email delivery: {e}")
-                self.db_service.rollback()
-                # Don't raise - email delivery logging failure shouldn't stop the process
-
     def log_error(self, execution_id: int, error: Exception):
         """
         Log error details

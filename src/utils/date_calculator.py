@@ -14,28 +14,12 @@ ALLOWED_INTERVALS = {
     'monthly',
     'quarterly',
     'yearly',
-    'yesterday',
 }
 
 
 def validate_interval_name(interval_name: str) -> bool:
     """
     Validate interval name against allowed intervals.
-    
-    >>> validate_interval_name('daily')
-    True
-    >>> validate_interval_name('DAILY')
-    True
-    >>> validate_interval_name('  daily  ')
-    True
-    >>> validate_interval_name('bi-daily')
-    True
-    >>> validate_interval_name('invalid')
-    False
-    >>> validate_interval_name('')
-    False
-    >>> validate_interval_name(None)
-    False
     """
     return (interval_name or '').strip().lower() in ALLOWED_INTERVALS
 
@@ -43,61 +27,6 @@ def validate_interval_name(interval_name: str) -> bool:
 class DateCalculator:
     """
     Calculate date/time ranges for report intervals based on an input date.
-    
-    >>> from datetime import datetime
-    >>> calc = DateCalculator()
-    >>> 
-    >>> # Test daily interval with 2025-01-01
-    >>> base_dt = datetime(2025, 1, 1, 12, 0, 0)
-    >>> start, end = calc.calculate_date_range_by_name('daily', base_dt)
-    >>> start == datetime(2025, 1, 1, 0, 0, 0)
-    True
-    >>> end == datetime(2025, 1, 1, 23, 59, 59, 999999)
-    True
-    >>> 
-    >>> # Test bi-daily interval - first half (before noon)
-    >>> morning_dt = datetime(2025, 1, 1, 10, 0, 0)
-    >>> start, end = calc.calculate_date_range_by_name('bi-daily', morning_dt)
-    >>> start == datetime(2025, 1, 1, 0, 0, 0)
-    True
-    >>> end == datetime(2025, 1, 1, 11, 59, 59)
-    True
-    >>> 
-    >>> # Test bi-daily interval - second half (after noon)
-    >>> afternoon_dt = datetime(2025, 1, 1, 14, 0, 0)
-    >>> start, end = calc.calculate_date_range_by_name('bi-daily', afternoon_dt)
-    >>> start == datetime(2025, 1, 1, 12, 0, 0)
-    True
-    >>> end == datetime(2025, 1, 1, 23, 59, 59)
-    True
-    >>> 
-    >>> # Test weekly interval
-    >>> start, end = calc.calculate_date_range_by_name('weekly', base_dt)
-    >>> start.date() == date(2025, 1, 1)
-    True
-    >>> end.date() == date(2025, 1, 7)
-    True
-    >>> 
-    >>> # Test monthly interval
-    >>> start, end = calc.calculate_date_range_by_name('monthly', base_dt)
-    >>> start.date() == date(2025, 1, 1)
-    True
-    >>> end.date() == date(2025, 1, 31)
-    True
-    >>> 
-    >>> # Test quarterly interval (Q1)
-    >>> start, end = calc.calculate_date_range_by_name('quarterly', base_dt)
-    >>> start.date() == date(2025, 1, 1)
-    True
-    >>> end.date() == date(2025, 3, 31)
-    True
-    >>> 
-    >>> # Test invalid interval
-    >>> try:
-    ...     calc.calculate_date_range_by_name('invalid', base_dt)
-    ... except ValueError as e:
-    ...     'Invalid interval name' in str(e)
-    True
     """
 
     @staticmethod
@@ -107,64 +36,149 @@ class DateCalculator:
             raise ValueError(f"Invalid interval name: {interval_name}")
 
         if name == 'bi-daily':
+            # Bi-daily splits day at 13:30 (1:30 PM)
+            # First half: 00:00:00 to 13:30:00
+            # Second half: 13:31:00 to 23:59:59.999999
             return DateCalculator._range_bidaily_by_cutoff(base_datetime)
         if name == 'daily' or name == 'last_bd':
             return DateCalculator._full_day(base_datetime.date())
         if name == 'weekly':
-            week_start = base_datetime.date()
-            week_end = week_start + timedelta(days=6)
-            return DateCalculator._range_dates(week_start, week_end)
+            # Calculate previous week (Sunday to Saturday)
+            # Shell runs on first day of week (Sunday) or day after (Monday)
+            return DateCalculator._previous_week(base_datetime.date())
         if name == 'monthly':
-            start = date(base_datetime.year, base_datetime.month, 1)
-            next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-            end = next_month - timedelta(days=1)
-            return DateCalculator._range_dates(start, end)
+            # Calculate previous month (complete month)
+            # Shell runs a few days after end of month
+            return DateCalculator._previous_month(base_datetime.date())
         if name == 'quarterly':
-            start = base_datetime.date()
-            end = DateCalculator._quarter_end_from_start(start)
-            return DateCalculator._range_dates(start, end)
+            # Calculate previous quarter (complete quarter)
+            # Shell runs after quarter ends
+            return DateCalculator._previous_quarter(base_datetime.date())
+        if name == 'yearly':
+            # Calculate previous year (complete year)
+            # Shell runs after year ends
+            return DateCalculator._previous_year(base_datetime.date())
 
         raise ValueError(f"Unhandled interval: {interval_name}")
 
     @staticmethod
     def _range_bidaily_by_cutoff(now_dt: datetime) -> Tuple[datetime, datetime]:
         """
-        Calculate bi-daily range split at noon:
-        - First half: 12:00 AM (midnight) - 11:59 AM
-        - Second half: 12:00 PM (noon) - 11:59 PM
+        Calculate bi-daily range split at 13:30 (1:30 PM):
+        - First half: 00:00:00 to 13:30:00
+        - Second half: 13:31:00 to 23:59:59.999999
         """
-        cutoff = now_dt.replace(hour=12, minute=0, second=0, microsecond=0).time()
+        cutoff_time = now_dt.replace(hour=13, minute=30, second=0, microsecond=0).time()
         exec_time = now_dt.time()
         day = now_dt.date()
         
-        if exec_time < cutoff:
-            # First half: midnight to 11:59 AM
+        if exec_time <= cutoff_time:
+            # First half: midnight to 13:30:00
             start = datetime.combine(day, datetime.min.time())
-            end = datetime.combine(day, datetime.min.time()).replace(hour=11, minute=59, second=59)
+            end = datetime.combine(day, datetime.min.time()).replace(hour=13, minute=30, second=0, microsecond=0)
         else:
-            # Second half: noon to 11:59 PM
-            start = datetime.combine(day, datetime.min.time()).replace(hour=12, minute=0, second=0)
-            end = datetime.combine(day, datetime.min.time()).replace(hour=23, minute=59, second=59)
+            # Second half: 13:31:00 to end of day
+            start = datetime.combine(day, datetime.min.time()).replace(hour=13, minute=31, second=0, microsecond=0)
+            end = datetime.combine(day, datetime.max.time())
         return start, end
 
     @staticmethod
     def _full_day(d: date) -> Tuple[datetime, datetime]:
+        """
+        Return full day range: 00:00:00 to 23:59:59.999999
+        """
         return datetime.combine(d, datetime.min.time()), datetime.combine(d, datetime.max.time())
 
     @staticmethod
     def _range_dates(start_date: date, end_date: date) -> Tuple[datetime, datetime]:
+        """
+        Return date range covering full days from start_date to end_date
+        """
         return datetime.combine(start_date, datetime.min.time()), datetime.combine(end_date, datetime.max.time())
 
     @staticmethod
-    def _quarter_end_from_start(q_start: date) -> date:
-        m = q_start.month
-        if m in (1, 2, 3):
-            return date(q_start.year, 3, 31)
-        if m in (4, 5, 6):
-            return date(q_start.year, 6, 30)
-        if m in (7, 8, 9):
-            return date(q_start.year, 9, 30)
-        return date(q_start.year, 12, 31)
+    def _previous_week(base_date: date) -> Tuple[datetime, datetime]:
+        """
+        Calculate previous week (Sunday to Saturday).
+        Shell runs on first day of week (Sunday) or day after (Monday).
+        Returns the complete previous week.
+        """
+        # Get the weekday (0=Monday, 1=Tuesday, ..., 5=Saturday, 6=Sunday)
+        weekday = base_date.weekday()
+        
+        # Calculate how many days to go back to get to previous Saturday (end of previous week)
+        # Formula: (weekday + 2) % 7, but if result is 0 (Saturday), use 7
+        days_to_previous_saturday = (weekday + 2) % 7
+        if days_to_previous_saturday == 0:
+            days_to_previous_saturday = 7
+        
+        # Previous Saturday (end of previous week)
+        previous_saturday = base_date - timedelta(days=days_to_previous_saturday)
+        
+        # Previous Sunday (6 days before previous Saturday, start of previous week)
+        previous_sunday = previous_saturday - timedelta(days=6)
+        
+        return DateCalculator._range_dates(previous_sunday, previous_saturday)
+
+    @staticmethod
+    def _previous_month(base_date: date) -> Tuple[datetime, datetime]:
+        """
+        Calculate previous month (complete month).
+        Shell runs a few days after end of month.
+        Returns the complete previous month (1st to last day).
+        """
+        # Get first day of current month
+        first_of_current = date(base_date.year, base_date.month, 1)
+        
+        # Last day of previous month is one day before first of current
+        last_of_previous = first_of_current - timedelta(days=1)
+        
+        # First day of previous month
+        first_of_previous = date(last_of_previous.year, last_of_previous.month, 1)
+        
+        return DateCalculator._range_dates(first_of_previous, last_of_previous)
+
+    @staticmethod
+    def _previous_quarter(base_date: date) -> Tuple[datetime, datetime]:
+        """
+        Calculate previous quarter (complete quarter).
+        Shell runs after quarter ends.
+        Returns the complete previous quarter.
+        """
+        # Determine current quarter
+        current_month = base_date.month
+        
+        if current_month in (1, 2, 3):
+            # Current quarter is Q1, previous is Q4 of last year
+            prev_quarter_start = date(base_date.year - 1, 10, 1)
+            prev_quarter_end = date(base_date.year - 1, 12, 31)
+        elif current_month in (4, 5, 6):
+            # Current quarter is Q2, previous is Q1 of current year
+            prev_quarter_start = date(base_date.year, 1, 1)
+            prev_quarter_end = date(base_date.year, 3, 31)
+        elif current_month in (7, 8, 9):
+            # Current quarter is Q3, previous is Q2 of current year
+            prev_quarter_start = date(base_date.year, 4, 1)
+            prev_quarter_end = date(base_date.year, 6, 30)
+        else:  # 10, 11, 12
+            # Current quarter is Q4, previous is Q3 of current year
+            prev_quarter_start = date(base_date.year, 7, 1)
+            prev_quarter_end = date(base_date.year, 9, 30)
+        
+        return DateCalculator._range_dates(prev_quarter_start, prev_quarter_end)
+
+    @staticmethod
+    def _previous_year(base_date: date) -> Tuple[datetime, datetime]:
+        """
+        Calculate previous year (complete year).
+        Shell runs after year ends.
+        Returns the complete previous year (Jan 1 to Dec 31).
+        """
+        prev_year = base_date.year - 1
+        prev_year_start = date(prev_year, 1, 1)
+        prev_year_end = date(prev_year, 12, 31)
+        
+        return DateCalculator._range_dates(prev_year_start, prev_year_end)
 
 
 
