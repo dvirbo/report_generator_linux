@@ -5,7 +5,7 @@ Execute parameterized Oracle PL/SQL queries safely
 
 import logging
 from typing import List, Dict, Any
-from datetime import date
+from datetime import date, datetime
 from .database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
@@ -147,6 +147,16 @@ class QueryExecutor:
         oracle_params = {}
         import re
         
+        # Check if query uses TO_DATE with date format strings (e.g., TO_DATE(:StartDate, 'DD/MM/YYYY'))
+        # If so, we need to pass dates as formatted strings instead of datetime objects
+        # Pattern matches: TO_DATE(:StartDate, 'DD/MM/YYYY') or TO_DATE(:start_date, 'DD/MM/YYYY') etc.
+        # Look for TO_DATE( followed by any bind variable containing 'start' and 'date', then 'DD/MM/YYYY'
+        to_date_pattern_start = r'TO_DATE\s*\(\s*:[^,\s)]*start[^,\s)]*date[^,\s)]*\s*,\s*[\'"]DD/MM/YYYY[\'"]'
+        query_uses_to_date_start = bool(re.search(to_date_pattern_start, query_template, re.IGNORECASE))
+        to_date_pattern_end = r'TO_DATE\s*\(\s*:[^,\s)]*end[^,\s)]*date[^,\s)]*\s*,\s*[\'"]DD/MM/YYYY[\'"]'
+        query_uses_to_date_end = bool(re.search(to_date_pattern_end, query_template, re.IGNORECASE))
+        query_uses_to_date = query_uses_to_date_start or query_uses_to_date_end
+        
         # Oracle bind variables are case-insensitive, but cx_Oracle may need exact match
         # Find the actual bind variable names in the query and use them as-is
         if query_has_start:
@@ -155,23 +165,54 @@ class QueryExecutor:
             if start_matches:
                 # Get the first match and extract the variable name (without the colon)
                 actual_var_name = start_matches[0].group(1)  # group(1) is the name without :
-                # Use the exact name from the query - Oracle is case-insensitive but cx_Oracle may need it
-                oracle_params[actual_var_name] = params['start_date']
+                # Check if this variable is used with TO_DATE - if so, format as string
+                start_date_val = params['start_date']
+                if query_uses_to_date_start and (isinstance(start_date_val, datetime) or isinstance(start_date_val, date)):
+                    # Format date as DD/MM/YYYY string for TO_DATE function
+                    if isinstance(start_date_val, datetime):
+                        start_date_val = start_date_val.date()
+                    oracle_params[actual_var_name] = start_date_val.strftime('%d/%m/%Y')
+                    logger.debug(f"Formatting start_date as DD/MM/YYYY string for TO_DATE: {oracle_params[actual_var_name]}")
+                else:
+                    # Pass datetime/date object directly (Oracle handles it natively)
+                    oracle_params[actual_var_name] = start_date_val
                 logger.debug(f"Mapping start_date parameter to bind variable: {actual_var_name}")
             else:
                 # Fallback: try common variations (lowercase)
-                oracle_params['startdate'] = params['start_date']
+                if query_uses_to_date_start and (isinstance(params['start_date'], datetime) or isinstance(params['start_date'], date)):
+                    date_val = params['start_date']
+                    if isinstance(date_val, datetime):
+                        date_val = date_val.date()
+                    oracle_params['startdate'] = date_val.strftime('%d/%m/%Y')
+                else:
+                    oracle_params['startdate'] = params['start_date']
         
         if query_has_end:
             # Find the actual bind variable name
             end_matches = list(re.finditer(r':(\w*end\w*date\w*)', query_template, re.IGNORECASE))
             if end_matches:
                 actual_var_name = end_matches[0].group(1)
-                oracle_params[actual_var_name] = params['end_date']
+                # Check if this variable is used with TO_DATE - if so, format as string
+                end_date_val = params['end_date']
+                if query_uses_to_date_end and (isinstance(end_date_val, datetime) or isinstance(end_date_val, date)):
+                    # Format date as DD/MM/YYYY string for TO_DATE function
+                    if isinstance(end_date_val, datetime):
+                        end_date_val = end_date_val.date()
+                    oracle_params[actual_var_name] = end_date_val.strftime('%d/%m/%Y')
+                    logger.debug(f"Formatting end_date as DD/MM/YYYY string for TO_DATE: {oracle_params[actual_var_name]}")
+                else:
+                    # Pass datetime/date object directly (Oracle handles it natively)
+                    oracle_params[actual_var_name] = end_date_val
                 logger.debug(f"Mapping end_date parameter to bind variable: {actual_var_name}")
             else:
                 # Fallback: try common variations (lowercase)
-                oracle_params['enddate'] = params['end_date']
+                if query_uses_to_date_end and (isinstance(params['end_date'], datetime) or isinstance(params['end_date'], date)):
+                    date_val = params['end_date']
+                    if isinstance(date_val, datetime):
+                        date_val = date_val.date()
+                    oracle_params['enddate'] = date_val.strftime('%d/%m/%Y')
+                else:
+                    oracle_params['enddate'] = params['end_date']
         
         if query_has_bu:
             # Check for :bu_identifier first, then :bu

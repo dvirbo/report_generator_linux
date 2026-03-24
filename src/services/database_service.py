@@ -29,7 +29,10 @@ class DatabaseService:
     def _build_connection_string(self) -> str:
         """Build Oracle connection string"""
         host = self.config.get('host')
-        port = self.config.get('port', 1521)
+        port = self.config.get('port')
+        if port is None:
+            raise ValueError("database port must be set in config.ini (e.g. 1521 dev, 1531 UAT)")
+        port = int(port)
         service_name = self.config.get('service_name')
         
         # Format: username/password@host:port/service_name
@@ -47,6 +50,7 @@ class DatabaseService:
                 dsn=self._connection_string
             )
             logger.info("Database connection established")
+            logger.info("DB connection string: %s user=%s", self._connection_string, username)
         except Exception as e:
             logger.error(f"Failed to connect to database: {e}")
             raise

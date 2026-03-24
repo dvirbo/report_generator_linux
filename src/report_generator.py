@@ -110,6 +110,9 @@ class ReportGenerator:
 
             logger.info(f"Processing report {report_id} ({report.report_name}) for period {start_dt} to {end_dt}")
 
+            # Set report date in email service for email body display
+            self.email_service.set_report_date(base_datetime)
+            
             result = self._handle_report(report, start_dt, end_dt, execution_id)
 
             self.logger_service.log_execution_end(execution_id, 'SUCCESS', {
@@ -537,27 +540,12 @@ class ReportGenerator:
                 # Manager-based processing for configured BUs
                 logger.info(f"Processing BU {bu_identifier} with manager-based logic")
                 
-                # Get manager IDs for this BU
-                manager_ids = self.recipient_service.get_manager_ids(bu_identifier)
-                
-                if not manager_ids:
-                    logger.warning(f"No manager IDs found for BU {bu_identifier}")
-                    continue
-                
-                if len(manager_ids) != len(group_recipients):
-                    logger.warning(
-                        f"Manager ID count ({len(manager_ids)}) doesn't match recipient count ({len(group_recipients)}) "
-                        f"for BU {bu_identifier}. Matching by order."
-                    )
-                
-                # Process each manager
-                for idx, manager_id in enumerate(manager_ids):
+                # Process each recipient using manager_id that was fetched with recipients
+                for recipient in group_recipients:
                     try:
-                        # Match manager to recipient by order (first manager ID -> first recipient, etc.)
-                        if idx < len(group_recipients):
-                            recipient = group_recipients[idx]
-                        else:
-                            logger.warning(f"No recipient found for manager ID {manager_id} at index {idx}")
+                        manager_id = recipient.manager_id
+                        if not manager_id:
+                            logger.warning(f"Missing manager_id for recipient {recipient.email} in BU {bu_identifier}, skipping")
                             continue
                         
                         # Execute query with bu_identifier and manager_id

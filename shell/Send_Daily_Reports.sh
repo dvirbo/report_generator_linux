@@ -18,7 +18,7 @@ if [ -z "$1" ]; then
 fi
 
 DATE_PARAM="$1"
-CURRENT_DATE=$(date +%d/%m/%Y)
+CURRENT_DATE=$(date -d "yesterday" +%d/%m/%Y)
 
 # Run last_bd reports with provided date parameter
 date '+%m/%d/%y %H:%M:%S Running last_bd reports with date: '"$DATE_PARAM"
@@ -27,7 +27,6 @@ last_bd_exit_code=$?
 
 if [ $last_bd_exit_code != 0 ]; then 
     date '+%m/%d/%y %H:%M:%S Error in last_bd reports run'
-    exit 1
 fi
 
 # Run daily reports with current system date

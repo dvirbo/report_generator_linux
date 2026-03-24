@@ -7,6 +7,7 @@ import smtplib
 import logging
 import csv
 import html
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -17,6 +18,9 @@ from ..models.recipient import Recipient
 from ..models.report_config import ReportConfig
 
 logger = logging.getLogger(__name__)
+
+# Module-level variable to store current report date (set before email sending)
+_current_report_date: Optional[datetime] = None
 
 
 class EmailService:
@@ -46,6 +50,35 @@ class EmailService:
         self.from_email = config.get('from_email')
         self.from_name = config.get('from_name', 'Automated Report System')
         self.attach_csv = config.get('attach_csv', True)
+    
+    @staticmethod
+    def set_report_date(report_date: Optional[datetime]):
+        """
+        Set the current report date for email body display.
+        This should be called before sending emails for a report.
+        
+        Args:
+            report_date: Date parameter used for the report (optional)
+        """
+        global _current_report_date
+        _current_report_date = report_date
+    
+    @staticmethod
+    def _get_report_title_with_date(report_name: str) -> str:
+        """
+        Get report title with date appended if available.
+        
+        Args:
+            report_name: Report name
+            
+        Returns:
+            Report name with date (e.g., "Report Name - 01/01/2026")
+        """
+        global _current_report_date
+        if _current_report_date:
+            report_date_str = _current_report_date.strftime('%d/%m/%Y')
+            return f"{report_name} - {report_date_str}"
+        return report_name
 
     def send_report_email(
         self,
@@ -71,8 +104,16 @@ class EmailService:
             msg = MIMEMultipart('mixed')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = recipient.email
-            # Set subject - use report subject or generate one
-            subject = report.mail_subject or f"Report: {report.report_name}"
+            # Set subject - use report subject or generate one with date
+            global _current_report_date
+            if report.mail_subject:
+                subject = report.mail_subject
+                # Append date to custom subject if date is available
+                if _current_report_date:
+                    report_date_str = _current_report_date.strftime('%d/%m/%Y')
+                    subject = f"{subject} - {report_date_str}"
+            else:
+                subject = f"Report: {EmailService._get_report_title_with_date(report.report_name)}"
             msg['Subject'] = subject
             
             # Build multipart/alternative body (plain + HTML).
@@ -117,8 +158,16 @@ class EmailService:
             msg = MIMEMultipart('mixed')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = ', '.join(recipients)
-            # Set subject - use report subject or generate one
-            subject = report.mail_subject or f"Report: {report.report_name}"
+            # Set subject - use report subject or generate one with date
+            global _current_report_date
+            if report.mail_subject:
+                subject = report.mail_subject
+                # Append date to custom subject if date is available
+                if _current_report_date:
+                    report_date_str = _current_report_date.strftime('%d/%m/%Y')
+                    subject = f"{subject} - {report_date_str}"
+            else:
+                subject = f"Report: {EmailService._get_report_title_with_date(report.report_name)}"
             msg['Subject'] = subject
             
             # Build multipart/alternative body (plain + HTML).
@@ -198,6 +247,11 @@ class EmailService:
         Plain-text fallback body. If a CSV exists, includes the raw CSV text (no truncation).
         """
         base = self._build_email_content(report, has_data)
+        
+        # Prepend report name with date to the base content
+        report_title_with_date = EmailService._get_report_title_with_date(report.report_name or "Report")
+        base = f"Report: {report_title_with_date}\n\n{base}"
+        
         if not (csv_filepath and has_data):
             return base
 
@@ -217,9 +271,8 @@ class EmailService:
         - all rows included (no truncation)
         - HTML-escaped cell contents
         """
-        from datetime import datetime
-
-        report_title = html.escape(report.report_name or "Report")
+        # Get report title with date on same line
+        report_title = html.escape(EmailService._get_report_title_with_date(report.report_name or "Report"))
         intro_parts: List[str] = []
 
         if report.mail_body:
@@ -229,13 +282,7 @@ class EmailService:
             intro_parts.append("</div>")
 
         if not has_data:
-            intro_parts.append("<p>This report contains no results for the selected period.</p>")
-        else:
-            intro_parts.append("<p>CSV data is included below.</p>")
-
-        intro_parts.append("<p><small>Generated: {}</small></p>".format(
-            html.escape(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        ))
+            intro_parts.append("<p>הדוח אינו מכיל תוצאות עבור התקופה שנבחרה</p>")
 
         table_html = ""
         if csv_filepath and has_data:
@@ -244,13 +291,13 @@ class EmailService:
 
         return (
             "<!doctype html>"
-            "<html>"
+            "<html dir=\"rtl\">"
             "<head>"
             "<meta charset=\"utf-8\"/>"
             "<style>"
             "table{{border-collapse:collapse;width:100%;}}"
             "th,td{{border:1px solid #ddd;padding:6px;vertical-align:top;}}"
-            "th{{background:#f5f5f5;text-align:left;}}"
+            "th{{background:#f5f5f5;text-align:center;}}"
             "</style>"
             "</head>"
             "<body>"

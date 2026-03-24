@@ -113,9 +113,15 @@ class ConfigLoader:
             if password and password_key:
                 logger.warning("Using fallback plain text password for database")
         
+        port = self.getint('database', 'port', fallback=None)
+        if port is None:
+            raise ValueError(
+                "[database] port must be set in config.ini for your environment "
+                "(e.g. 1521 for dev, 1531 for UAT). Do not rely on code defaults."
+            )
         return {
             'host': self.get('database', 'host'),
-            'port': self.getint('database', 'port', 1521),
+            'port': port,
             'service_name': self.get('database', 'service_name'),
             'username': self.get('database', 'username'),
             'password': password,

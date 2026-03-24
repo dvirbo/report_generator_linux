@@ -7,3 +7,16 @@ all the reports exept last_bd need to run the sysdate,
  instead of getting the first date of the interval - we will get the last date of the interval.
  this is relevant for 'weekly','monthly','quarterly','yearly'.
  also, we don't use the yesterday interval anymore - delete it from @Date Calculator and the @README
+
+
+ add the next data to the query that in get_recipients under RecipientService class: 
+
+for branch managers: 
+
+AML_mobile_Manager_TST
+AML_Second_Level_TST
+AML_Mortgages_Manager_TST
+
+for complience: 
+
+AML_Compliance_Regional_Controller_TST
