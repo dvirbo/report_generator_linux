@@ -21,7 +21,8 @@ The system supports three main processing modes:
 
 **Configuration:**
 - `bu_indicator`: `mador` or `compliance`
-- `recipient_source`: `distribution_list` (from report_config table)
+- Primary recipients: `mador` uses `distribution_list` from `report_config`; `compliance` uses DB (`compliance_logins` in `config.ini`)
+- `distribution_list` is **always appended** at send time (deduplicated) for every report, including compliance bulk sends
 
 **Example Use Case:**
 - A compliance report that needs to be sent to all compliance officers
@@ -43,7 +44,8 @@ The system supports three main processing modes:
 
 **Configuration:**
 - `bu_indicator`: `branches` or `merchav`
-- `recipient_source`: `database` (fetched from actone.acm_users)
+- Primary recipients: `database` (fetched from actone.acm_users via `config.ini` login lists)
+- `distribution_list` is **appended to each BU group email** (same CSV as that BU; dist-list addresses may receive multiple emails if multiple BUs)
 - `requires_bu_parameter`: `true`
 
 **Example Use Case:**
@@ -74,7 +76,8 @@ The system supports three main processing modes:
 
 **Configuration:**
 - `bu_indicator`: `branches`
-- `recipient_source`: `database`
+- Primary recipients: `database`
+- `distribution_list` is **appended to each manager or BU-group email** (dist-list addresses may receive multiple emails per report run)
 - `manager_bu_list`: Comma-separated list of BU identifiers in `config.ini`
   ```ini
   [branches]
@@ -129,7 +132,7 @@ Each report is configured with:
 - `report_name`: Display name
 - `sql_query`: SQL query with bind variables (`:start_date`, `:end_date`, `:bu`, `:bu_identifier`, `:manager_id`)
 - `interval_desc`: Processing interval (daily, weekly, etc.)
-- `distribution_list`: Email addresses (for distribution_list mode)
+- `distribution_list`: Comma-separated email addresses appended to every send for that report (deduplicated against primary recipients)
 - `bu_indicator`: Processing mode indicator (`mador`, `branches`, `merchav`, `compliance`)
 - `mail_subject`: Email subject line
 - `mail_body`: Email body text

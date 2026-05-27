@@ -23,7 +23,7 @@ Each report uses `bu_indicator` to decide behavior:
 - `branches` / `merchav`: per-BU processing
 
 ### 3 Fetch Recipients
-Recipients are fetched from DB by configured login names in `config.ini` (`[recipients]`), and include:
+Primary recipients come from DB login names in `config.ini` (`[recipients]`) for branches, merchav, and compliance; mador uses `distribution_list` as the primary source. Every report also **appends** `distribution_list` emails at send time (deduplicated). DB recipients include:
 - `email`
 - `bu_identifier`
 - `manager_id` (from `child_users.user_identifier`)

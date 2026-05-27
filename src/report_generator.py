@@ -261,6 +261,39 @@ class ReportGenerator:
             return self.recipient_service.get_recipients(config.bu_indicator)
         raise ValueError(f"Invalid recipient source: {config.recipient_source}")
 
+    def _merge_distribution_list_emails(
+        self,
+        report: ReportConfig,
+        primary_emails: List[str]
+    ) -> List[str]:
+        """Append report distribution_list emails to primary recipients (case-insensitive dedupe)."""
+        seen = set()
+        merged: List[str] = []
+
+        for email in primary_emails:
+            normalized = (email or '').strip()
+            if not normalized:
+                continue
+            key = normalized.lower()
+            if key not in seen:
+                seen.add(key)
+                merged.append(normalized)
+
+        added = 0
+        for email in report.get_distribution_list_emails():
+            key = email.lower()
+            if key not in seen:
+                seen.add(key)
+                merged.append(email)
+                added += 1
+
+        if added:
+            logger.info(
+                f"Report {report.report_id}: appended {added} distribution_list email(s)"
+            )
+
+        return merged
+
     def _handle_report(self, report: ReportConfig, start_dt: datetime, end_dt: datetime, execution_id: int) -> Dict[str, Any]:
         '''
         Handle report processing based on the processing mode and the report configuration
@@ -350,8 +383,9 @@ class ReportGenerator:
                 # Send email without attachment when send_on_no_data is enabled
                 logger.info(f"No data returned for report {report.report_id}, but send_on_no_data is enabled - sending email without attachment")
                 recipient_emails = [r.email for r in recipients]
-                success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
-                return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': len(recipients) if success else 0, 'records_returned': 0}
+                merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
+                success = self.email_service.send_report_email_to_list(merged_emails, report, None, has_data=False)
+                return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': len(merged_emails) if success else 0, 'records_returned': 0}
             else:
                 # Skip email sending when send_on_no_data is disabled
                 logger.info(f"No data returned for report {report.report_id}, skipping email sending")
@@ -362,12 +396,13 @@ class ReportGenerator:
         csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
         
         recipient_emails = [r.email for r in recipients]
-        success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
+        merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
+        success = self.email_service.send_report_email_to_list(merged_emails, report, csv_filepath, has_data)
 
         if csv_filepath:
             self.csv_generator.cleanup_file(csv_filepath)
 
-        return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': len(recipients) if success else 0, 'records_returned': len(results)}
+        return {'report_id': report.report_id, 'report_name': report.report_name, 'recipients_count': len(merged_emails) if success else 0, 'records_returned': len(results)}
 
     def _process_per_bu_group_query_email(
         self,
@@ -425,9 +460,10 @@ class ReportGenerator:
                         # Send email without attachment when send_on_no_data is enabled
                         logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
                         recipient_emails = [r.email for r in group_recipients]
-                        success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
+                        merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
+                        success = self.email_service.send_report_email_to_list(merged_emails, report, None, has_data=False)
                         if success:
-                            success_count += len(group_recipients)
+                            success_count += len(merged_emails)
                         continue
                     else:
                         # Skip email sending when send_on_no_data is disabled
@@ -440,9 +476,10 @@ class ReportGenerator:
 
                 # Send one email to all recipients in the group
                 recipient_emails = [r.email for r in group_recipients]
-                success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
+                merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
+                success = self.email_service.send_report_email_to_list(merged_emails, report, csv_filepath, has_data)
                 if success:
-                    success_count += len(group_recipients)
+                    success_count += len(merged_emails)
 
                 # Cleanup CSV file
                 if csv_filepath:
@@ -517,9 +554,10 @@ class ReportGenerator:
                             # Send email without attachment when send_on_no_data is enabled
                             logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
                             recipient_emails = [r.email for r in group_recipients]
-                            success = self.email_service.send_report_email_to_list(recipient_emails, report, None, has_data=False)
+                            merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
+                            success = self.email_service.send_report_email_to_list(merged_emails, report, None, has_data=False)
                             if success:
-                                success_count += len(group_recipients)
+                                success_count += len(merged_emails)
                             continue
                         else:
                             # Skip email sending when send_on_no_data is disabled
@@ -529,9 +567,10 @@ class ReportGenerator:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
                     recipient_emails = [r.email for r in group_recipients]
-                    success = self.email_service.send_report_email_to_list(recipient_emails, report, csv_filepath, has_data)
+                    merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
+                    success = self.email_service.send_report_email_to_list(merged_emails, report, csv_filepath, has_data)
                     if success:
-                        success_count += len(group_recipients)
+                        success_count += len(merged_emails)
                     
                     if csv_filepath:
                         self.csv_generator.cleanup_file(csv_filepath)
@@ -568,14 +607,17 @@ class ReportGenerator:
                                     f"No data returned for report {report.report_id}, BU {bu_identifier}, "
                                     f"manager {manager_id}, but send_on_no_data is enabled - sending email without attachment"
                                 )
-                                success = self.email_service.send_report_email(
-                                    recipient, 
-                                    report, 
-                                    None, 
+                                merged_emails = self._merge_distribution_list_emails(
+                                    report, [recipient.email]
+                                )
+                                success = self.email_service.send_report_email_to_list(
+                                    merged_emails,
+                                    report,
+                                    None,
                                     has_data=False
                                 )
                                 if success:
-                                    success_count += 1
+                                    success_count += len(merged_emails)
                                 continue
                             else:
                                 # Skip email sending when send_on_no_data is disabled
@@ -594,14 +636,17 @@ class ReportGenerator:
                         )
                         
                         # Send email to this specific manager
-                        success = self.email_service.send_report_email(
-                            recipient, 
-                            report, 
-                            csv_filepath, 
+                        merged_emails = self._merge_distribution_list_emails(
+                            report, [recipient.email]
+                        )
+                        success = self.email_service.send_report_email_to_list(
+                            merged_emails,
+                            report,
+                            csv_filepath,
                             has_data
                         )
                         if success:
-                            success_count += 1
+                            success_count += len(merged_emails)
                         
                         # Cleanup CSV file
                         if csv_filepath:
