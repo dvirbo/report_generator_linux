@@ -294,6 +294,11 @@ class ReportGenerator:
 
         return merged
 
+    @staticmethod
+    def _bu_name_for_group(recipients: List[Recipient]) -> Optional[str]:
+        """Return BU display name from the first recipient in a per-BU group."""
+        return recipients[0].bu_name if recipients else None
+
     def _handle_report(self, report: ReportConfig, start_dt: datetime, end_dt: datetime, execution_id: int) -> Dict[str, Any]:
         '''
         Handle report processing based on the processing mode and the report configuration
@@ -461,7 +466,10 @@ class ReportGenerator:
                         logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
                         recipient_emails = [r.email for r in group_recipients]
                         merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
-                        success = self.email_service.send_report_email_to_list(merged_emails, report, None, has_data=False)
+                        success = self.email_service.send_report_email_to_list(
+                            merged_emails, report, None, has_data=False,
+                            bu_name=self._bu_name_for_group(group_recipients)
+                        )
                         if success:
                             success_count += len(merged_emails)
                         continue
@@ -477,7 +485,10 @@ class ReportGenerator:
                 # Send one email to all recipients in the group
                 recipient_emails = [r.email for r in group_recipients]
                 merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
-                success = self.email_service.send_report_email_to_list(merged_emails, report, csv_filepath, has_data)
+                success = self.email_service.send_report_email_to_list(
+                    merged_emails, report, csv_filepath, has_data,
+                    bu_name=self._bu_name_for_group(group_recipients)
+                )
                 if success:
                     success_count += len(merged_emails)
 
@@ -555,7 +566,10 @@ class ReportGenerator:
                             logger.info(f"No data returned for report {report.report_id}, BU {bu_identifier}, but send_on_no_data is enabled - sending email without attachment")
                             recipient_emails = [r.email for r in group_recipients]
                             merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
-                            success = self.email_service.send_report_email_to_list(merged_emails, report, None, has_data=False)
+                            success = self.email_service.send_report_email_to_list(
+                                merged_emails, report, None, has_data=False,
+                                bu_name=self._bu_name_for_group(group_recipients)
+                            )
                             if success:
                                 success_count += len(merged_emails)
                             continue
@@ -568,7 +582,10 @@ class ReportGenerator:
                     csv_filepath = self.csv_generator.generate_csv(results, report.report_name, timestamp)
                     recipient_emails = [r.email for r in group_recipients]
                     merged_emails = self._merge_distribution_list_emails(report, recipient_emails)
-                    success = self.email_service.send_report_email_to_list(merged_emails, report, csv_filepath, has_data)
+                    success = self.email_service.send_report_email_to_list(
+                        merged_emails, report, csv_filepath, has_data,
+                        bu_name=self._bu_name_for_group(group_recipients)
+                    )
                     if success:
                         success_count += len(merged_emails)
                     
@@ -614,7 +631,8 @@ class ReportGenerator:
                                     merged_emails,
                                     report,
                                     None,
-                                    has_data=False
+                                    has_data=False,
+                                    bu_name=recipient.bu_name
                                 )
                                 if success:
                                     success_count += len(merged_emails)
@@ -643,7 +661,8 @@ class ReportGenerator:
                             merged_emails,
                             report,
                             csv_filepath,
-                            has_data
+                            has_data,
+                            bu_name=recipient.bu_name
                         )
                         if success:
                             success_count += len(merged_emails)

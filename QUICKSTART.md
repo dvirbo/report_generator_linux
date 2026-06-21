@@ -36,6 +36,7 @@ Primary recipients come from DB login names in `config.ini` (`[recipients]`) for
 - If query returns data: generate CSV and email
 - If no data: send or skip based on `send_on_no_data`
 - Email subject/title shows the **reporting period** (e.g. `01/01/2026 - 31/01/2026` for monthly), not the CLI input date
+- Branches and merchav emails include the **BU name** (Hebrew supported) in the body, without a label prefix
 
 ## Run
 

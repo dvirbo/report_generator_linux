@@ -57,6 +57,7 @@ class RecipientService:
             SELECT
               DISTINCT child_users.email AS email,
               bu.bu_identifier AS bu_identifier,
+              bu.name AS bu_name,
               child_users.full_name AS full_name,
               child_users.bu_internal_id AS bu_internal_id,
               child_users.user_identifier AS manager_id
@@ -80,6 +81,7 @@ class RecipientService:
                 recipient = Recipient(
                     email=row.get('email') or row.get('EMAIL'),
                     bu_identifier=row.get('bu_identifier') or row.get('BU_IDENTIFIER'),
+                    bu_name=row.get('bu_name') or row.get('BU_NAME'),
                     full_name=row.get('full_name') or row.get('FULL_NAME'),
                     bu_internal_id=row.get('bu_internal_id') or row.get('BU_INTERNAL_ID'),
                     manager_id=row.get('manager_id') or row.get('MANAGER_ID')

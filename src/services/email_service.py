@@ -151,7 +151,8 @@ class EmailService:
         recipients: List[str],
         report: ReportConfig,
         csv_filepath: Optional[str] = None,
-        has_data: bool = True
+        has_data: bool = True,
+        bu_name: Optional[str] = None
     ) -> bool:
         """
         Send report email to multiple recipients
@@ -161,6 +162,7 @@ class EmailService:
             report: ReportConfig object
             csv_filepath: Path to CSV file attachment (optional)
             has_data: Whether query returned data
+            bu_name: Business unit name for branches/merchav email body (optional)
         
         Returns:
             True if all emails sent successfully
@@ -181,7 +183,9 @@ class EmailService:
             msg['Subject'] = subject
             
             # Build multipart/alternative body (plain + HTML).
-            alt = self._build_alternative_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
+            alt = self._build_alternative_body(
+                report=report, has_data=has_data, csv_filepath=csv_filepath, bu_name=bu_name
+            )
             msg.attach(alt)
             
             # Attach CSV file optionally (HTML body always includes a table when CSV exists)
@@ -198,7 +202,12 @@ class EmailService:
             logger.error(f"Failed to send email to recipients: {e}")
             return False
 
-    def _build_email_content(self, report: ReportConfig, has_data: bool) -> str:
+    def _build_email_content(
+        self,
+        report: ReportConfig,
+        has_data: bool,
+        bu_name: Optional[str] = None
+    ) -> str:
         """
         Build legacy plain-text email content.
 
@@ -207,6 +216,7 @@ class EmailService:
         Args:
             report: ReportConfig object
             has_data: Whether query returned data
+            bu_name: Business unit name for branches/merchav (optional)
         
         Returns:
             Email body text
@@ -217,6 +227,10 @@ class EmailService:
         
         if report.mail_body:
             body_parts.append(report.mail_body)
+            body_parts.append("")
+
+        if bu_name:
+            body_parts.append(bu_name)
             body_parts.append("")
         
         if not has_data:
@@ -237,6 +251,7 @@ class EmailService:
         report: ReportConfig,
         has_data: bool,
         csv_filepath: Optional[str],
+        bu_name: Optional[str] = None,
     ) -> MIMEMultipart:
         """
         Build multipart/alternative email body:
@@ -245,18 +260,28 @@ class EmailService:
         """
         alt = MIMEMultipart('alternative')
 
-        plain = self._build_plain_text_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
-        html_body = self._build_html_body(report=report, has_data=has_data, csv_filepath=csv_filepath)
+        plain = self._build_plain_text_body(
+            report=report, has_data=has_data, csv_filepath=csv_filepath, bu_name=bu_name
+        )
+        html_body = self._build_html_body(
+            report=report, has_data=has_data, csv_filepath=csv_filepath, bu_name=bu_name
+        )
 
         alt.attach(MIMEText(plain, 'plain', 'utf-8'))
         alt.attach(MIMEText(html_body, 'html', 'utf-8'))
         return alt
 
-    def _build_plain_text_body(self, report: ReportConfig, has_data: bool, csv_filepath: Optional[str]) -> str:
+    def _build_plain_text_body(
+        self,
+        report: ReportConfig,
+        has_data: bool,
+        csv_filepath: Optional[str],
+        bu_name: Optional[str] = None,
+    ) -> str:
         """
         Plain-text fallback body. If a CSV exists, includes the raw CSV text (no truncation).
         """
-        base = self._build_email_content(report, has_data)
+        base = self._build_email_content(report, has_data, bu_name=bu_name)
         
         # Prepend report name with date to the base content
         report_title_with_date = EmailService._get_report_title_with_date(report.report_name or "Report")
@@ -273,7 +298,13 @@ class EmailService:
             + csv_text
         )
 
-    def _build_html_body(self, report: ReportConfig, has_data: bool, csv_filepath: Optional[str]) -> str:
+    def _build_html_body(
+        self,
+        report: ReportConfig,
+        has_data: bool,
+        csv_filepath: Optional[str],
+        bu_name: Optional[str] = None,
+    ) -> str:
         """
         HTML email body (mandatory). If a CSV exists, renders it as an HTML table with:
         - first row as <th> headers
@@ -290,6 +321,9 @@ class EmailService:
             intro_parts.append("<div>")
             intro_parts.append(html.escape(report.mail_body).replace("\n", "<br/>"))
             intro_parts.append("</div>")
+
+        if bu_name:
+            intro_parts.append(f"<p>{html.escape(bu_name)}</p>")
 
         if not has_data:
             intro_parts.append("<p>הדוח אינו מכיל תוצאות עבור התקופה שנבחרה</p>")

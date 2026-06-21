@@ -13,6 +13,7 @@ class Recipient:
     """
     email: str
     bu_identifier: Optional[str] = None
+    bu_name: Optional[str] = None
     full_name: Optional[str] = None
     bu_internal_id: Optional[int] = None
     manager_id: Optional[str] = None

@@ -139,6 +139,8 @@ Each report is configured with:
 
 **Email subject/title dates:** The date shown in the email subject and body title is the **computed reporting period** (`start_date`–`end_date` from `DateCalculator`), not the CLI input date. Single-day intervals show `DD/MM/YYYY`; multi-day intervals show `DD/MM/YYYY - DD/MM/YYYY`. The CLI date remains the anchor for period calculation only.
 
+**Branches/merchav BU name:** For `bu_indicator` `branches` and `merchav`, the email body includes the business unit name from `actone.acm_md_business_units.name` (name only, no label). Hebrew names are supported via existing UTF-8/RTL HTML email formatting.
+
 ---
 
 ## Processing Flow Diagram
