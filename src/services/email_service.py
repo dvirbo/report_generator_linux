@@ -19,8 +19,9 @@ from ..models.report_config import ReportConfig
 
 logger = logging.getLogger(__name__)
 
-# Module-level variable to store current report date (set before email sending)
-_current_report_date: Optional[datetime] = None
+# Module-level variables to store current report period (set before email sending)
+_current_report_start: Optional[datetime] = None
+_current_report_end: Optional[datetime] = None
 
 
 class EmailService:
@@ -52,32 +53,45 @@ class EmailService:
         self.attach_csv = config.get('attach_csv', True)
     
     @staticmethod
-    def set_report_date(report_date: Optional[datetime]):
+    def set_report_period(start_dt: datetime, end_dt: datetime):
         """
-        Set the current report date for email body display.
+        Set the current report period for email subject/title display.
         This should be called before sending emails for a report.
-        
+
         Args:
-            report_date: Date parameter used for the report (optional)
+            start_dt: Start of the reporting period
+            end_dt: End of the reporting period
         """
-        global _current_report_date
-        _current_report_date = report_date
-    
+        global _current_report_start, _current_report_end
+        _current_report_start = start_dt
+        _current_report_end = end_dt
+
+    @staticmethod
+    def _format_report_period() -> Optional[str]:
+        """Format stored report period for display in subject/title."""
+        global _current_report_start, _current_report_end
+        if _current_report_start is None or _current_report_end is None:
+            return None
+        if _current_report_start.date() == _current_report_end.date():
+            return _current_report_start.strftime('%d/%m/%Y')
+        start_str = _current_report_start.strftime('%d/%m/%Y')
+        end_str = _current_report_end.strftime('%d/%m/%Y')
+        return f"{start_str} - {end_str}"
+
     @staticmethod
     def _get_report_title_with_date(report_name: str) -> str:
         """
-        Get report title with date appended if available.
-        
+        Get report title with period appended if available.
+
         Args:
             report_name: Report name
-            
+
         Returns:
-            Report name with date (e.g., "Report Name - 01/01/2026")
+            Report name with period (e.g., "Report Name - 01/01/2026" or "Report Name - 01/01/2026 - 31/01/2026")
         """
-        global _current_report_date
-        if _current_report_date:
-            report_date_str = _current_report_date.strftime('%d/%m/%Y')
-            return f"{report_name} - {report_date_str}"
+        period_str = EmailService._format_report_period()
+        if period_str:
+            return f"{report_name} - {period_str}"
         return report_name
 
     def send_report_email(
@@ -104,14 +118,12 @@ class EmailService:
             msg = MIMEMultipart('mixed')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = recipient.email
-            # Set subject - use report subject or generate one with date
-            global _current_report_date
+            # Set subject - use report subject or generate one with period
+            period_str = EmailService._format_report_period()
             if report.mail_subject:
                 subject = report.mail_subject
-                # Append date to custom subject if date is available
-                if _current_report_date:
-                    report_date_str = _current_report_date.strftime('%d/%m/%Y')
-                    subject = f"{subject} - {report_date_str}"
+                if period_str:
+                    subject = f"{subject} - {period_str}"
             else:
                 subject = f"Report: {EmailService._get_report_title_with_date(report.report_name)}"
             msg['Subject'] = subject
@@ -158,14 +170,12 @@ class EmailService:
             msg = MIMEMultipart('mixed')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = ', '.join(recipients)
-            # Set subject - use report subject or generate one with date
-            global _current_report_date
+            # Set subject - use report subject or generate one with period
+            period_str = EmailService._format_report_period()
             if report.mail_subject:
                 subject = report.mail_subject
-                # Append date to custom subject if date is available
-                if _current_report_date:
-                    report_date_str = _current_report_date.strftime('%d/%m/%Y')
-                    subject = f"{subject} - {report_date_str}"
+                if period_str:
+                    subject = f"{subject} - {period_str}"
             else:
                 subject = f"Report: {EmailService._get_report_title_with_date(report.report_name)}"
             msg['Subject'] = subject

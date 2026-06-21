@@ -110,8 +110,8 @@ class ReportGenerator:
 
             logger.info(f"Processing report {report_id} ({report.report_name}) for period {start_dt} to {end_dt}")
 
-            # Set report date in email service for email body display
-            self.email_service.set_report_date(base_datetime)
+            # Set report period in email service for subject/title display
+            self.email_service.set_report_period(start_dt, end_dt)
             
             result = self._handle_report(report, start_dt, end_dt, execution_id)
 

@@ -18,7 +18,6 @@ if [ -z "$1" ]; then
 fi
 
 DATE_PARAM="$1"
-CURRENT_DATE=$(date -d "yesterday" +%d/%m/%Y)
 
 # Run last_bd reports with provided date parameter
 date '+%m/%d/%y %H:%M:%S Running last_bd reports with date: '"$DATE_PARAM"
@@ -30,8 +29,8 @@ if [ $last_bd_exit_code != 0 ]; then
 fi
 
 # Run daily reports with current system date
-date '+%m/%d/%y %H:%M:%S Running daily reports with date: '"$CURRENT_DATE"
-python3 $REPORT_GENERATOR_MAIN daily "$CURRENT_DATE"
+date '+%m/%d/%y %H:%M:%S Running daily reports with date: '"$DATE_PARAM"
+python3 $REPORT_GENERATOR_MAIN daily "$DATE_PARAM"
 daily_exit_code=$?
 
 if [ $daily_exit_code != 0 ]; then 

@@ -9,8 +9,8 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$AIS_UTILITIES_FOLDER
 
 #######################################################################################################################################################################
 
-date '+%m/%d/%y %H:%M:%S Start - Send_Monthly_Reports'
-python3 $REPORT_GENERATOR_MAIN monthly "$(date +%d/%m/%Y)"
+date '+%m/%d/%y %H:%M:%S Starpython3 $REPORT_GENERATOR_MAIN monthly "$t - Send_Monthly_Reports'
+(date +%d/%m/%Y)"
 
 if [ $? != 0 ]; then 
     date '+%m/%d/%y %H:%M:%S Error in Send_Monthly_Reports run'

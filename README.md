@@ -137,6 +137,8 @@ Each report is configured with:
 - `mail_subject`: Email subject line
 - `mail_body`: Email body text
 
+**Email subject/title dates:** The date shown in the email subject and body title is the **computed reporting period** (`start_date`–`end_date` from `DateCalculator`), not the CLI input date. Single-day intervals show `DD/MM/YYYY`; multi-day intervals show `DD/MM/YYYY - DD/MM/YYYY`. The CLI date remains the anchor for period calculation only.
+
 ---
 
 ## Processing Flow Diagram
