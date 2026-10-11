@@ -276,14 +276,14 @@ python main.py last_bd 2025-01-15
 
 ### Valid Intervals
 
+- `last_bd` - Last business day
 - `daily` - Daily reports
 - `bi-daily` - Bi-daily reports
 - `weekly` - Weekly reports
 - `monthly` - Monthly reports
 - `quarterly` - Quarterly reports
 - `yearly` - Yearly reports
-- `yesterday` - Yesterday's data
-- `last_bd` - Last business day
+
 
 ---
 
